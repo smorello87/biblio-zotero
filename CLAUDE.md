@@ -266,3 +266,35 @@ The script supports both command-line arguments and interactive prompts:
 - Includes header with count, explanation, and guidance
 - Numbered entries with visual separators for easy reading
 - Failed entries still added to output as stub records for import
+
+## Repository Structure
+
+```
+biblio-zotero/
+├── omeka_bib_to_zotero.py      # Main script (single file)
+├── README.md                    # User documentation
+├── CLAUDE.md                    # This file (developer guide)
+├── LICENSE                      # Apache 2.0
+├── docs/                        # Development documentation
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   ├── NEW_FEATURES.md
+│   ├── FIXES_APPLIED.md
+│   └── ... (analysis and change docs)
+├── examples/                    # Example input files
+│   └── test_bibliography.txt
+└── tests/                       # Test and analysis scripts
+    ├── test_scraping.py
+    ├── proposed_fixes.py
+    └── ... (development test scripts)
+```
+
+**Important locations**:
+- All code is in the single `omeka_bib_to_zotero.py` file
+- Development docs are in `docs/` (not needed for usage)
+- Example files are in `examples/`
+- Test scripts are in `tests/` (not automated tests, development tools)
+
+**What's ignored** (see `.gitignore`):
+- Output files (`*.json`, `*.ris`, `failed_entries.txt`)
+- Python bytecode (`__pycache__/`, `*.pyc`)
+- Virtual environments, IDE files, temporary files
