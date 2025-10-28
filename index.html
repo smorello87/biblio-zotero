@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bibliography to Zotero Converter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Bibliography to Zotero Converter</h1>
+            <p class="subtitle">Convert bibliographic entries into Zotero-importable formats</p>
+            <div style="margin-top: 15px;">
+                <button id="about-link" class="btn-secondary" style="font-size: 0.9rem; padding: 8px 16px;">
+                    About This Tool
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="main-content">
+            <!-- Step 1: Input Source -->
+            <section class="step-section" id="step-input">
+                <h2>Step 1: Choose Input Source</h2>
+                <div class="input-group">
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="input-source" value="url" checked>
+                            <span class="radio-text">
+                                <strong>URL (Web Scraping)</strong>
+                                <small>Fetch bibliography from Omeka website</small>
+                            </span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="input-source" value="file">
+                            <span class="radio-text">
+                                <strong>Local File</strong>
+                                <small>Upload .txt or .docx file</small>
+                            </span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="input-source" value="text">
+                            <span class="radio-text">
+                                <strong>Paste Text</strong>
+                                <small>Copy and paste bibliography entries</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="url-input" class="source-input">
+                    <label for="url-field">Source URL:</label>
+                    <input type="text" id="url-field" class="text-input"
+                           placeholder="Enter bibliography URL...">
+
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="use-cors-proxy" checked>
+                            <span>Use CORS proxy (recommended)</span>
+                        </label>
+                        <p class="help-text">
+                            Automatically adds a CORS proxy to bypass browser security restrictions.
+                            Uncheck only if you're using a browser extension or local proxy.
+                            <a href="#" id="cors-learn-more" class="learn-more-link">Learn more about CORS →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div id="file-input" class="source-input" style="display: none;">
+                    <label for="file-field">Choose File:</label>
+                    <div class="file-upload-wrapper">
+                        <input type="file" id="file-field" accept=".txt,.docx">
+                        <label for="file-field" class="file-upload-label">
+                            <span class="file-upload-text">Choose file...</span>
+                        </label>
+                    </div>
+                    <p class="help-text">Supported formats: .txt (plain text), .docx (Word document)</p>
+                </div>
+
+                <div id="text-input" class="source-input" style="display: none;">
+                    <label for="text-field">Bibliography Text:</label>
+                    <textarea id="text-field" class="text-area" rows="15"
+                              placeholder="Paste your bibliography entries here...&#10;&#10;Separate entries with blank lines (triple newlines recommended).&#10;&#10;Example:&#10;Smith, John. 2020. Book Title. New York: Publisher.&#10;&#10;&#10;Jones, Mary. 2021. Another Book. Boston: Press."></textarea>
+                    <p class="help-text">
+                        <strong>Tip:</strong> Separate entries with blank lines (triple newlines work best, like in the source files).
+                        This matches the format used by Omeka bibliography pages.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Step 2: Output Format -->
+            <section class="step-section" id="step-format">
+                <h2>Step 2: Output Format</h2>
+                <div class="input-group">
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="output-format" value="csljson" checked>
+                            <span class="radio-text">
+                                <strong>CSL-JSON</strong>
+                                <small>Recommended for Zotero (native format)</small>
+                            </span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="output-format" value="ris">
+                            <span class="radio-text">
+                                <strong>RIS</strong>
+                                <small>Alternative citation format</small>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 3: AI Model Configuration -->
+            <section class="step-section" id="step-llm">
+                <h2>Step 3: AI Model Configuration</h2>
+                <p class="section-description">
+                    Configure OpenRouter AI to parse bibliographic entries into structured Zotero-compatible format.
+                </p>
+
+                <div id="llm-config">
+                    <div class="input-group">
+                        <label for="model-select">Model:</label>
+                        <select id="model-select" class="select-input">
+                            <option value="openai/gpt-oss-120b">GPT OSS 120B (Very Cheap - Default)</option>
+                            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                            <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5 (Best Quality)</option>
+                            <option value="openai/gpt-4o">GPT-4o</option>
+                            <option value="qwen/qwen3-235b-a22b-2507">Qwen 3 235B</option>
+                            <option value="other">Other (Custom Model)</option>
+                        </select>
+                        <div class="warning-box" style="margin-top: 10px;">
+                            <strong>⚠️ Free Model Data Retention:</strong> Free models (marked with "Free") may retain your input data for training purposes. For sensitive bibliographic data, consider using paid models like Claude 3.5 Sonnet or GPT-4o which have data privacy guarantees.
+                        </div>
+                        <p class="help-text">
+                            Popular models for bibliography parsing. Claude and GPT models work best.
+                            <a href="https://openrouter.ai/models" target="_blank" class="learn-more-link">Browse all models →</a>
+                        </p>
+                    </div>
+
+                    <div id="custom-model-input" class="input-group" style="display: none;">
+                        <label for="custom-model-field">Custom Model Name:</label>
+                        <input type="text" id="custom-model-field" class="text-input"
+                               placeholder="e.g., openai/gpt-4o-mini or anthropic/claude-3-opus">
+                        <p class="help-text">
+                            Enter the OpenRouter model identifier (format: provider/model-name).
+                            Find models at <a href="https://openrouter.ai/models" target="_blank">openrouter.ai/models</a>
+                        </p>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="api-key-field">OpenRouter API Key:</label>
+                        <input type="password" id="api-key-field" class="text-input" placeholder="sk-or-v1-...">
+
+                        <div class="checkbox-group" style="margin-top: 10px;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="remember-api-key">
+                                <span>Remember API key in browser</span>
+                            </label>
+                        </div>
+
+                        <div class="warning-box" style="margin-top: 10px;">
+                            <strong>⚠️ Security Warning:</strong> Only check "Remember API key" if you're on a personal computer. Do NOT use this option on shared or public computers, as your API key will be stored in the browser's localStorage and could be accessed by others.
+                        </div>
+
+                        <p class="help-text">
+                            Get your API key at <a href="https://openrouter.ai/keys" target="_blank" class="learn-more-link">openrouter.ai/keys</a>.
+                            <button type="button" id="clear-api-key-btn" class="btn-link" style="display: none;">Clear saved API key</button>
+                        </p>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="batch-size-field">Batch Size:</label>
+                        <input type="number" id="batch-size-field" class="text-input" value="25" min="1" max="100">
+                        <p class="help-text">Number of entries to process per API call (default: 25)</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 4: Output Options -->
+            <section class="step-section" id="step-options">
+                <h2>Step 4: Output Options</h2>
+
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="test-mode">
+                        <span>Test Mode (Process only 10 entries)</span>
+                    </label>
+                    <div class="info-box" style="margin-top: 10px;">
+                        <strong>💡 What is Test Mode?</strong><br>
+                        When enabled, only the first 10 bibliography entries will be processed. This is useful for:
+                        <ul style="margin: 8px 0; padding-left: 20px;">
+                            <li>Quick testing without using many API credits</li>
+                            <li>Verifying the output format before full processing</li>
+                            <li>Checking if your API key and model work correctly</li>
+                        </ul>
+                        Uncheck to process all entries (recommended after testing).
+                    </div>
+                </div>
+
+                <div class="input-group" style="margin-top: 20px;">
+                    <label for="output-filename-field">Output Filename:</label>
+                    <input type="text" id="output-filename-field" class="text-input" value="zotero_bibliography.json">
+                    <p class="help-text">The filename for the downloaded output file</p>
+                </div>
+            </section>
+
+            <!-- Process Button -->
+            <section class="action-section">
+                <button id="process-btn" class="btn-primary">Process Bibliography</button>
+            </section>
+
+            <!-- Progress Display -->
+            <section id="progress-section" class="step-section" style="display: none;">
+                <h2>Processing...</h2>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text">Initializing...</p>
+                </div>
+                <div id="log-container" class="log-container"></div>
+            </section>
+
+            <!-- Results Display -->
+            <section id="results-section" class="step-section" style="display: none;">
+                <h2>Results</h2>
+                <div class="results-summary" id="results-summary"></div>
+                <div class="results-actions">
+                    <button id="download-btn" class="btn-primary">Download Output</button>
+                    <button id="download-failed-btn" class="btn-secondary" style="display: none;">Download Failed Entries</button>
+                </div>
+                <div id="preview-container" class="preview-container" style="display: none;">
+                    <h3>Preview (First 5 Entries)</h3>
+                    <pre id="preview-content"></pre>
+                </div>
+            </section>
+
+            <!-- CORS Modal Overlay -->
+            <div id="cors-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Understanding CORS</h2>
+                        <span class="modal-close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <p>
+                            <strong>CORS (Cross-Origin Resource Sharing)</strong> is a browser security feature that prevents
+                            websites from accessing content on other domains. This is why direct web scraping can be blocked.
+                        </p>
+
+                        <h3>Solution 1: CORS Proxy (Default, Recommended)</h3>
+                        <p>
+                            This app automatically uses <code>corsproxy.io</code> to bypass CORS restrictions.
+                            The proxy acts as an intermediary, fetching the page on your behalf.
+                        </p>
+                        <div class="info-box">
+                            <strong>How it works:</strong><br>
+                            Your URL: <code>https://example.com/page</code><br>
+                            Becomes: <code>https://corsproxy.io/?https://example.com/page</code>
+                        </div>
+                        <p class="help-text">
+                            <strong>Other proxy options:</strong><br>
+                            • <code>https://api.allorigins.win/raw?url=</code><br>
+                            • <code>https://cors-anywhere.herokuapp.com/</code> (may require temporary access)
+                        </p>
+
+                        <h3>Solution 2: Browser Extension</h3>
+                        <p>Install a CORS-disabling extension to allow direct access:</p>
+                        <ul>
+                            <li><strong>Chrome/Edge:</strong> "Allow CORS: Access-Control-Allow-Origin"</li>
+                            <li><strong>Firefox:</strong> "CORS Everywhere"</li>
+                        </ul>
+                        <div class="warning-box">
+                            <strong>⚠️ Security Warning:</strong> Remember to disable the extension after use,
+                            as it reduces browser security protections.
+                        </div>
+                        <p class="help-text">If using an extension, uncheck "Use CORS proxy" above.</p>
+
+                        <h3>Solution 3: Manual Download & Upload</h3>
+                        <p>If automated scraping doesn't work:</p>
+                        <ol>
+                            <li>Visit the webpage in your browser</li>
+                            <li>Save the page (Ctrl+S / Cmd+S) or copy the bibliography text</li>
+                            <li>Create a .txt file with the content</li>
+                            <li>Use the "Local File" or "Paste Text" input option</li>
+                        </ol>
+
+                        <h3>Solution 4: Local Proxy Server (Advanced)</h3>
+                        <p>Run your own CORS proxy locally:</p>
+                        <div class="code-example">
+                            <code># Install cors-anywhere<br>
+npm install -g cors-anywhere<br>
+<br>
+# Run proxy on port 8080<br>
+cors-anywhere<br>
+<br>
+# Update proxy URL in the app's JavaScript</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- About Modal Overlay -->
+            <div id="about-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>About This Tool</h2>
+                        <span class="modal-close" id="about-modal-close">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <p>
+                            This web application converts bibliographic entries from URLs, local files, or pasted text
+                            into Zotero-importable formats (CSL-JSON or RIS). It uses AI to intelligently parse and structure
+                            bibliographic data for seamless import into reference managers.
+                        </p>
+
+                        <h3>Features</h3>
+                        <ul>
+                            <li><strong>Multiple Input Methods:</strong> Web scraping with automatic CORS proxy, file upload (.txt/.docx), or direct text paste</li>
+                            <li><strong>AI-Powered Parsing:</strong> Uses OpenRouter API to access multiple AI models (Claude, GPT, Gemini, etc.)</li>
+                            <li><strong>Smart Processing:</strong> Automatic entry splitting, author ditto mark expansion, and format detection</li>
+                            <li><strong>Flexible Output:</strong> CSL-JSON (recommended) or RIS format for Zotero import</li>
+                            <li><strong>Batch Processing:</strong> Handles large bibliographies with configurable batch sizes and retry logic</li>
+                            <li><strong>Error Handling:</strong> Failed entries are tracked and can be downloaded for manual review</li>
+                            <li><strong>Convenience Features:</strong> API key storage, test mode (10 entries), progress tracking</li>
+                        </ul>
+
+                        <h3>Getting Started</h3>
+                        <ol>
+                            <li>Get an API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a></li>
+                            <li>Choose your input source (URL, file, or paste text)</li>
+                            <li>Select an AI model (Claude Sonnet 4.5 or GPT-4o recommended)</li>
+                            <li>Enter your API key (optionally save it for future use)</li>
+                            <li>Enable Test Mode for initial testing (processes 10 entries)</li>
+                            <li>Click "Process Bibliography" and wait for results</li>
+                            <li>Download your CSL-JSON or RIS file and import into Zotero</li>
+                        </ol>
+
+                        <h3>Tips</h3>
+                        <ul>
+                            <li>Use <strong>Test Mode</strong> first to verify everything works before processing large bibliographies</li>
+                            <li><strong>GPT OSS 120B</strong> (default) is very cheap - other models available if you prefer different options</li>
+                            <li><strong>Batch size</strong> of 25 is optimal for most models (lower if you get timeouts)</li>
+                            <li>CORS proxy is enabled by default - uncheck only if using a browser extension</li>
+                            <li>Save your API key only on personal computers, never on shared devices</li>
+                        </ul>
+
+                        <h3>Project Info</h3>
+                        <p>
+                            This is a web version of the <code>biblio-zotero</code> Python script.
+                            Built with vanilla JavaScript, no backend required - runs entirely in your browser.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <div class="footer-content">
+            <p>
+                &copy; 2024 Bibliography to Zotero Converter | GNU GPL v3 License
+                <br>
+                Developed by <a href="https://www.stefanomorello.com" target="_blank" class="footer-link">Stefano Morello</a>
+                | <a href="https://github.com/smorello87/biblio-zotero" target="_blank" class="footer-link">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    View on GitHub
+                </a>
+            </p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Entry Splitting</title>
+</head>
+<body>
+    <h1>Debug Entry Splitting</h1>
+    <textarea id="input" rows="10" cols="80">Smith, John. 2020. A Study of Modern Bibliography. New York: Academic Press.
+
+
+Jones, Mary. 2021. Digital Humanities in Practice. Boston: MIT Press.
+
+
+Brown, Robert. 2019. "Citation Management Tools." Journal of Library Science 15(3): 45-67.</textarea>
+    <br><br>
+    <button onclick="testSplit()">Test Split</button>
+    <pre id="output"></pre>
+
+    <script>
+        function splitEntries(rawText) {
+            console.log('Input text:', rawText);
+            console.log('Input length:', rawText.length);
+
+            // Normalize line endings and non-breaking spaces
+            let text = rawText.replace(/\xa0/g, ' ');
+            text = text.replace(/\r\n?/g, '\n');
+
+            console.log('After normalization:', text);
+
+            // Split on triple newlines
+            const rawBlocks = text.split(/\n\n\n+/);
+            console.log('Raw blocks:', rawBlocks.length, rawBlocks);
+
+            const entries = [];
+            for (const block of rawBlocks) {
+                const trimmed = block.trim();
+                if (!trimmed) continue;
+
+                const entryText = trimmed.replace(/\s+/g, ' ').trim();
+
+                if (entryText.toLowerCase().startsWith('search using this query type')) {
+                    continue;
+                }
+                if (/^(home|about|browse|search|contact|map|essays?|collections?)(\s|$)/i.test(entryText)) {
+                    continue;
+                }
+                if (entryText.length < 20 && !/\d{4}/.test(entryText)) {
+                    continue;
+                }
+
+                entries.push(entryText);
+            }
+
+            console.log('Final entries:', entries.length, entries);
+            return entries;
+        }
+
+        function testSplit() {
+            const input = document.getElementById('input').value;
+            const entries = splitEntries(input);
+            document.getElementById('output').textContent =
+                `Found ${entries.length} entries:\n\n` +
+                entries.map((e, i) => `${i+1}. ${e}`).join('\n\n');
+        }
+    </script>
+</body>
+</html>

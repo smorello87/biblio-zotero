@@ -4,45 +4,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a single-script Python utility that converts bibliographic entries from an Omeka Classic website or local files into Zotero-importable formats (CSL-JSON or RIS). The script supports web scraping, local file input (.txt, .docx), and optionally uses LLMs (OpenAI or OpenRouter) to structure the citations.
+This repository contains **two implementations** of a bibliography converter that transforms bibliographic entries into Zotero-importable formats:
 
-**Main script**: `omeka_bib_to_zotero.py`
+1. **Python Script** (`omeka_bib_to_zotero.py`) - Command-line utility
+2. **Web Application** (`index.html`, `app.js`, `styles.css`) - Browser-based tool
 
-**Input sources**:
-- URLs (web scraping from Omeka sites)
-- Local .txt files (plain text)
-- Local .docx files (Microsoft Word)
+Both implementations support:
+- Web scraping from Omeka Classic websites
+- Local file input (.txt, .docx for Python; .txt for web)
+- Copy/paste text input (web only)
+- LLM-powered parsing (OpenAI/OpenRouter)
+- CSL-JSON and RIS output formats
+- Author ditto mark expansion
 
-**Expected results**: 1,088 bibliographic entries from the default URL
+**Key Files**:
+- `omeka_bib_to_zotero.py` - Python implementation (27 KB)
+- `index.html` - Web app HTML structure (22 KB)
+- `app.js` - Web app JavaScript logic (35 KB)
+- `styles.css` - Web app CSS styling (16 KB, CUNY blue theme)
 
-## Dependencies
-
-**Required:**
-- `requests`: HTTP client for fetching web pages and making API calls
-- `beautifulsoup4`: HTML parsing for extracting bibliography content
-
-**Optional:**
-- `python-docx`: For reading .docx files
-
-Install with: `pip install requests beautifulsoup4 python-docx`
+**Default Test URL**: `https://italianamericanimprints.omeka.net/actual-bibliography` (1,088 entries)
 
 ## Common Commands
 
-### Interactive mode (recommended for first-time use)
+### Web Application (Browser-Based)
+
+**Start local server**:
 ```bash
-python omeka_bib_to_zotero.py
-# Follow prompts:
-#   1. Choose input source (URL or local file)
-#   2. Enter URL or file path
-#   3. Choose output format (CSL-JSON or RIS)
-#   4. Enter output file name
-#   5. Choose LLM provider (or none)
-#   6. Enter model name (if using LLM)
-#   7. Enter API key (if using LLM)
-#   8. Enter max entries (optional, for testing)
+python -m http.server 8000
+# or
+python3 -m http.server 8000
 ```
 
-### Basic usage from URL (no LLM)
+**Access**: Open `http://localhost:8000` in browser
+
+**No dependencies required** - runs entirely in browser
+
+### Python Script (Command-Line)
+
+**Dependencies**:
+```bash
+pip install requests beautifulsoup4 python-docx
+```
+
+**Interactive mode**:
+```bash
+python omeka_bib_to_zotero.py
+```
+
+**Basic usage**:
 ```bash
 python omeka_bib_to_zotero.py --url https://italianamericanimprints.omeka.net/actual-bibliography --out output.json --format csljson
 # Then select option 1 (No LLM) when prompted
@@ -91,210 +101,202 @@ print(f'First: {entries[0][:80]}...')  # Should start with 'Abbamonte, Salvatore
 
 ## Architecture
 
-The script is organized into functional sections:
+### Web Application Architecture
 
-### 1. Web Scraping (`fetch_page_text`)
-- Fetches HTML from the Omeka page
-- Locates the "Bibliography" heading (tries h1/h2/h3 tags)
-- Extracts all content after that heading until the next major heading
-- Falls back to extracting everything after first "Bibliography" occurrence if structured extraction fails
+The web app is a **client-side only** JavaScript application with three main files:
 
-### 2. Entry Splitting (`split_entries`)
-- Splits on triple-newline separators (actual HTML structure from Omeka)
-- Joins internal line breaks within entries with spaces
-- Normalizes whitespace and removes non-breaking spaces
-- Filters out navigation/menu artifacts with multiple detection patterns
-- **Critical**: Must produce exactly 1,088 entries from the default URL
+#### `index.html` - UI Structure
+- **Input options**: URL scraping, file upload (.txt only), or paste text
+- **CORS proxy**: Checkbox to auto-prepend `https://corsproxy.io/?` to URLs
+- **Model selection**: Dropdown with pre-configured models:
+  - `openai/gpt-oss-120b` (Very Cheap - Default)
+  - `google/gemini-2.5-flash`
+  - `anthropic/claude-sonnet-4.5` (Best Quality)
+  - `openai/gpt-4o`
+  - `qwen/qwen3-235b-a22b-2507`
+  - Custom model option
+- **API key storage**: localStorage with security warnings
+- **Test mode**: Checkbox to limit processing to 10 entries
+- **Progress indicators**: Real-time updates and logging
+- **Modal overlays**: CORS help and About sections
+- **Footer**: Full-width with developer credits and GNU GPL v3 license
 
-### 3. Author Expansion (`expand_repeated_authors`)
-- Handles bibliographic ditto marks (underscores or em-dashes) that reference the previous author
-- Uses three regex patterns to extract author names without accumulating metadata (years, etc.)
-- Pattern 1: `"Surname, Given [middle]. YEAR"` (most common)
-- Pattern 2: `"Surname, Given [pseudonym]."` (with brackets)
-- Pattern 3: Simple `"Surname, Given."` with year stripping
-- **Critical**: Must NOT accumulate years when expanding ditto marks
+#### `styles.css` - CUNY Blue Theme
+- **Color scheme**: `--primary-blue: #003DA5`, `--secondary-blue: #002D72`
+- **Layout**: Full-width header/footer, centered 980px content
+- **Components**: Styled buttons, inputs, radios, checkboxes, progress bars
+- **Professional shadows**: sm (0 1px 2px), md (0 4px 6px), lg (0 10px 15px)
+- **Responsive**: Mobile-friendly with media queries
 
-### 4. LLM Parsing (`batch_parse_with_llm`)
-- Batches entries (default 25 per batch) to minimize API calls
-- Supports two providers: OpenAI (`call_openai_chat`) and OpenRouter (`call_openrouter_chat`)
-- Both providers use `response_format: {"type": "json_object"}` for structured output
-- **Retry logic**: 3 attempts with exponential backoff (2s, 4s, 8s) for timeouts and rate limits
-- **Timeout**: 180 seconds (increased from original 60s)
-- **Batch mismatch handling**: Creates stub records for missing entries when LLM returns incomplete batches
-- Falls back to minimal stub records if LLM parsing fails
-- Writes failed entries to `failed_entries.txt` for manual review (formatted with headers, numbers, separators)
-- Expects API keys via environment variables: `OPENAI_API_KEY` or `OPENROUTER_API_KEY`
-- 1.0 second delay between batches to avoid rate limiting
+#### `app.js` - Core Logic
 
-### 5. LLM Prompt Strategy
-- **System prompt** (`LLM_SYSTEM_PROMPT`): instructs the LLM to output valid JSON with no commentary
-- **User prompt** (`LLM_USER_TEMPLATE`): requests `{"items": [...]}` format (required for json_object response format)
-- Handles Italian/English bibliographic entries
-- Maps editors to 'editor' array, authors to 'author' array with `{family, given}` structure
-- Preserves year suffixes (e.g., "1940a") in notes
-- Detects uncertain dates like `[1903]` or `n.d.` and adds clarifying notes
-- **Important**: Response must be wrapped in `{"items": [...]}` object, not a raw array
+**Entry Splitting (`splitEntries`)**:
+- **Critical**: Detects format automatically:
+  - If text contains `\n\n` (blank lines): splits on blank lines (Omeka format)
+  - If no blank lines: splits on single newlines (pasted format)
+- Normalizes whitespace and line endings
+- Filters out navigation artifacts
+- **Note**: This dual-format detection is essential for handling both web-scraped and pasted text
 
-### 6. Output Formats
+**LLM Integration**:
+- **OpenRouter only** (browser environment)
+- Uses `response_format: {"type": "json_object"}` for structured output
+- **Important**: Models must support `response_format` parameter:
+  - ✅ Works: GPT OSS 120B, Gemini 2.5 Flash, Claude Sonnet 4.5, GPT-4o, Qwen 3 235B
+  - ❌ Removed: DeepSeek Chat v3 (doesn't support structured output)
+- Batch size: 25 entries per request
+- Retry logic: 3 attempts with exponential backoff
+- Timeout: 180 seconds per request
+- 1 second delay between batches to avoid rate limiting
 
-**CSL-JSON** (`write_csl_json`):
-- Native Zotero import format
-- Simple JSON array serialization with UTF-8 encoding
+**LLM Prompt Strategy**:
+- System prompt emphasizes: "CRITICAL: Your response must be ONLY a JSON object starting with { and ending with }. NO commentary, NO explanations, NO analysis."
+- User prompt requests `{"items": [...]}` format
+- Handles Italian/English entries
+- Maps authors/editors correctly
+- Preserves year suffixes and handles uncertain dates
 
-**RIS** (`write_ris`):
-- Alternative citation format also supported by Zotero
-- Maps CSL types to RIS types via `CSL_TYPE_TO_RIS` dict
-- Generates line-based format with tags like `TY`, `AU`, `TI`, `ER`
-- Uses `csl_to_ris_record` to convert each CSL-JSON item
+**localStorage API Key**:
+- Saves key with user consent
+- Clears on demand
+- Security warnings about shared computers
 
-### 7. Local File Reading (`read_local_file`)
-- Supports both .txt and .docx file formats
-- `read_text_file()`: Reads plain text files with UTF-8 encoding
-- `read_docx_file()`: Reads Word documents paragraph-by-paragraph (requires python-docx)
-- Automatically detects file type from extension
-- Raises clear errors for unsupported formats or missing files
+**File Reading**:
+- .txt files only (mammoth.js not included for .docx)
+- Uses FileReader API
 
-### 8. Interactive Prompts (`prompt_*` functions)
-- `prompt_input_source()`: Choose between URL or local file input
-- `prompt_output_format()`: Select CSL-JSON or RIS format
-- `prompt_output_file()`: Enter output file path with format-specific defaults
-- `prompt_use_llm()`: Choose LLM provider (None, OpenAI, OpenRouter)
-- `prompt_model()`: Enter model name with provider-specific suggestions
-- `prompt_api_key()`: Enter API key (checks environment first)
-- `prompt_max_entries()`: Optionally limit entries for testing
+**Output Generation**:
+- Creates CSL-JSON or RIS format
+- Downloads via Blob URLs
+- Generates `failed_entries.txt` for incomplete LLM responses
 
-## Key Data Flow
+### Python Script Architecture
 
-1. **Input**: Fetch HTML from Omeka URL OR read from local file (.txt/.docx)
-2. Extract bibliography section text (or use file content directly)
-3. Split into individual entries using triple-newline separators
-4. Expand ditto marks for repeated authors
-5. Batch-process entries through LLM (if enabled) or create minimal stubs
-6. Format as CSL-JSON or RIS
-7. Write output file + `failed_entries.txt` for any LLM failures
+See full architecture details in sections 1-8 below (Web Scraping, Entry Splitting, Author Expansion, LLM Parsing, Prompts, Output Formats, File Reading). Key differences from web app:
+- Supports both OpenAI and OpenRouter
+- Reads .docx files (python-docx)
+- Uses environment variables for API keys
+- Command-line arguments and interactive prompts
 
-## Testing Strategy
+## Critical Development Notes
 
-When testing changes:
-- Use `--max 10` to limit the number of entries processed
-- Test without LLM first to verify scraping/splitting logic (should extract 1,088 entries)
-- Verify first entry starts with "Abbamonte, Salvatore. 1907..."
-- Verify last entry starts with "Zucchi, John E. 1992..."
-- Test with LLM on a small batch before full runs
-- Check `failed_entries.txt` for parsing issues
-- Verify output imports cleanly into Zotero
+### DO NOT Change Without Asking
+1. **Default model**: Must be `openai/gpt-oss-120b` (very cheap)
+2. **Model list**: User explicitly specified each model - ask before changing
+3. **Styling**: Uses CUNY blue theme matching whisper-server-nml project
+4. **License**: GNU GPL v3 (not Apache 2.0)
+5. **Footer credits**: Developer name and GitHub link
 
-**Testing local file input:**
-```bash
-# Create test file with triple-newline separators
-cat > test.txt << 'EOF'
-Smith, John. 2020. Test Book. New York: Press.
+### Common Issues
 
+**Entry Splitting**:
+- Web app uses dual-format detection (blank lines OR single newlines)
+- Python uses triple-newline only
+- When debugging: use `debug_split_test.html` to visualize newlines
 
-Jones, Mary. 2021. Another Book. Boston: MIT.
-EOF
+**LLM Models Not Working**:
+- Check if model supports `response_format: {"type": "json_object"}`
+- Use curl to check OpenRouter API: `curl -s "https://openrouter.ai/api/v1/models" | python3 -c "import json, sys; models = json.load(sys.stdin)['data']; model = [m for m in models if 'MODEL_ID' in m['id']]; print(json.dumps(model[0]['supported_parameters'], indent=2))"`
+- If `response_format` not in supported_parameters, model won't work reliably
 
-# Test reading
-python omeka_bib_to_zotero.py --file test.txt --out test.json --max 10
-```
+**LLM Returning Commentary Instead of JSON**:
+- Strengthen system prompt with "CRITICAL: NO commentary, NO explanations, NO analysis"
+- Some models (like GPT OSS 120B) may still struggle - this is known behavior
+- Users can switch to Claude Sonnet 4.5 or GPT-4o for better reliability
 
-## Interactive Mode
-
-The script supports both command-line arguments and interactive prompts:
-- If arguments are not provided, the script prompts interactively
-- **New**: First prompt asks to choose between URL or local file input
-- Prompts include: input source, URL/file path, output format (CSL-JSON/RIS), output file path, LLM provider, model name, API key, max entries
-- API key prompt checks environment variables first and offers to use existing keys
-- All prompts have sensible defaults (e.g., default URL, gpt-4o-mini for OpenAI, claude-3.5-sonnet for OpenRouter)
-
-**Command-line arguments:**
-- `--url <URL>` - Source URL for web scraping
-- `--file <PATH>` - Local file path (.txt or .docx)
-- `--out <PATH>` - Output file path
-- `--format {csljson,ris}` - Output format
-- `--use-llm {openai,openrouter}` - LLM provider
-- `--model <NAME>` - Model name
-- `--max <N>` - Limit entries for testing
-
-**Note**: `--url` and `--file` are mutually exclusive; use one or the other
-
-## Performance & Output
-
-**Scraping performance**:
-- ~3 seconds to fetch and parse all 1,088 entries
-- Without LLM: ~5 seconds total
-- With LLM: ~60-90 minutes (1,088 entries ÷ 25 per batch × 1s delay + processing time)
-- API costs: ~$0.50-$1.00 for full run with gpt-4o-mini
-
-**Output files**:
-- `output.json` or `output.ris` - Main output file
-- `failed_entries.txt` - Detailed list of entries that couldn't be parsed by LLM (if any)
-
-**Without LLM**: All citation text is preserved verbatim in the `title` field with a note explaining that LLM parsing was disabled
-
-**Input file format**: For local files (.txt or .docx), entries should be separated by triple newlines (blank lines) for best results
-
-## Known Issues & Solutions
-
-**Issue**: Script was returning 1,113 entries instead of 1,088
-**Cause**: Entry splitting logic split on blank lines, incorrectly splitting some entries with internal line breaks
-**Solution**: Now splits on triple-newline separators and joins internal lines (FIXED)
-
-**Issue**: Author ditto marks accumulated years (e.g., "Abbamonte, Salvatore 1919 1940a 1940b")
-**Cause**: Regex captured everything up to first period, including years
-**Solution**: Three-pattern approach extracts only author name, strips years (FIXED)
-
-**Issue**: API timeouts caused entire batches to fail
-**Cause**: 60s timeout too short, no retry logic
-**Solution**: Increased to 180s timeout, added exponential backoff retry (FIXED)
-
-**Issue**: LLM sometimes returns fewer items than batch size
-**Cause**: LLM parsing occasionally fails on complex entries
-**Solution**: Creates stub records for missing entries, adds to failed_entries.txt (FIXED)
-
-## Recent Additions
-
-**Local File Input (NEW)**:
-- Added support for reading from .txt and .docx files
-- Interactive prompt allows choosing between URL and local file
-- Command-line: `--file <path>` argument
-- Requires `python-docx` for .docx support (optional dependency)
-- Files should use triple-newline separators between entries
-
-**Enhanced Failed Entries Tracking (NEW)**:
-- Replaced basic `failed.txt` with formatted `failed_entries.txt`
-- Includes header with count, explanation, and guidance
-- Numbered entries with visual separators for easy reading
-- Failed entries still added to output as stub records for import
+**CORS Errors**:
+- Default checkbox auto-prepends `https://corsproxy.io/?` to URLs
+- Users can uncheck if using CORS extension or running locally
+- Modal overlay explains CORS and alternatives
 
 ## Repository Structure
 
 ```
 biblio-zotero/
-├── omeka_bib_to_zotero.py      # Main script (single file)
-├── README.md                    # User documentation
-├── CLAUDE.md                    # This file (developer guide)
-├── LICENSE                      # Apache 2.0
-├── docs/                        # Development documentation
-│   ├── IMPLEMENTATION_SUMMARY.md
-│   ├── NEW_FEATURES.md
-│   ├── FIXES_APPLIED.md
-│   └── ... (analysis and change docs)
-├── examples/                    # Example input files
-│   └── test_bibliography.txt
-└── tests/                       # Test and analysis scripts
-    ├── test_scraping.py
-    ├── proposed_fixes.py
-    └── ... (development test scripts)
+├── Web Application
+│   ├── index.html                # Main UI (22 KB)
+│   ├── app.js                    # JavaScript logic (35 KB)
+│   ├── styles.css                # CUNY blue theme (16 KB)
+│   ├── debug_split_test.html     # Entry splitting debugger
+│   └── test_paste.txt            # Sample test data
+│
+├── Python Script
+│   └── omeka_bib_to_zotero.py    # Command-line tool (27 KB)
+│
+├── Documentation
+│   ├── CLAUDE.md                 # This file (developer guide)
+│   ├── README.md                 # User documentation (Python)
+│   ├── WEB_APP_README.md         # User documentation (Web)
+│   ├── WEB_APP_ARCHITECTURE.md   # Technical architecture
+│   ├── QUICK_START_WEB.md        # Web app quick start
+│   ├── TEST_WEB_APP.md           # Testing guide
+│   └── docs/                     # Development docs
+│
+├── Examples & Tests
+│   ├── examples/test_bibliography.txt
+│   └── tests/                    # Development test scripts
+│
+└── Configuration
+    ├── .gitignore
+    └── LICENSE                   # GNU GPL v3
 ```
 
-**Important locations**:
-- All code is in the single `omeka_bib_to_zotero.py` file
-- Development docs are in `docs/` (not needed for usage)
-- Example files are in `examples/`
-- Test scripts are in `tests/` (not automated tests, development tools)
+## Testing
 
-**What's ignored** (see `.gitignore`):
-- Output files (`*.json`, `*.ris`, `failed_entries.txt`)
-- Python bytecode (`__pycache__/`, `*.pyc`)
-- Virtual environments, IDE files, temporary files
+**Web App**:
+```bash
+# Start server
+python3 -m http.server 8000
+
+# Test with paste input using test_paste.txt
+# Enable Test Mode checkbox to process only 10 entries
+# Check browser console for debug output
+```
+
+**Python Script**:
+```bash
+# Test with limited entries
+python omeka_bib_to_zotero.py --max 10 --out test.json
+
+# Verify entry count (should be 1,088 from default URL)
+python -c "from omeka_bib_to_zotero import fetch_page_text, split_entries; print(len(split_entries(fetch_page_text('https://italianamericanimprints.omeka.net/actual-bibliography'))))"
+```
+
+## Python Script Detailed Architecture
+
+### 1. Web Scraping (`fetch_page_text`)
+- Fetches HTML from Omeka page
+- Locates "Bibliography" heading (h1/h2/h3)
+- Extracts content after heading
+- Falls back to full extraction if structured extraction fails
+
+### 2. Entry Splitting (`split_entries`)
+- Splits on triple-newline separators
+- Normalizes whitespace and line endings
+- Filters navigation artifacts
+- **Critical**: Must produce exactly 1,088 entries from default URL
+
+### 3. Author Expansion (`expand_repeated_authors`)
+- Handles ditto marks (underscores, em-dashes)
+- Three regex patterns to extract author names
+- **Critical**: Must NOT accumulate years
+
+### 4. LLM Parsing (`batch_parse_with_llm`)
+- Batch size: 25 entries
+- Supports OpenAI and OpenRouter
+- Retry logic: 3 attempts, exponential backoff
+- Timeout: 180 seconds
+- 1 second delay between batches
+
+### 5. Output Formats
+- **CSL-JSON** (`write_csl_json`): Native Zotero format
+- **RIS** (`write_ris`): Alternative format with type mapping
+
+### 6. File Reading (`read_local_file`)
+- .txt: UTF-8 text files
+- .docx: Word documents (requires python-docx)
+
+### 7. Interactive Prompts
+- Input source, format, LLM provider, model, API key
+- Checks environment variables first
+- Sensible defaults provided

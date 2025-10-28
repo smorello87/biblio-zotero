@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Entry Splitting</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        textarea { width: 100%; height: 200px; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+        .result { margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>Debug Entry Splitting</h1>
+    <p>Paste your bibliography text below and click "Test Split" to see how it's being parsed:</p>
+
+    <textarea id="input" placeholder="Paste your bibliography entries here..."></textarea>
+    <br><br>
+    <button onclick="testSplit()">Test Split</button>
+
+    <div class="result">
+        <h2>Results:</h2>
+        <pre id="output"></pre>
+    </div>
+
+    <script>
+        function splitEntries(rawText) {
+            console.log('=== RAW INPUT ===');
+            console.log('Length:', rawText.length);
+            console.log('Raw text:', JSON.stringify(rawText));
+
+            // Normalize line endings and non-breaking spaces
+            let text = rawText.replace(/\xa0/g, ' ');
+            text = text.replace(/\r\n?/g, '\n');
+
+            console.log('\n=== AFTER NORMALIZATION ===');
+            console.log('Length:', text.length);
+            console.log('Normalized:', JSON.stringify(text));
+
+            // Show where newlines are
+            const visualized = text.replace(/\n/g, '⏎\n');
+            console.log('\n=== VISUALIZED (⏎ = newline) ===');
+            console.log(visualized);
+
+            // Split on double or triple newlines (blank lines between entries)
+            const rawBlocks = text.split(/\n\n+/);
+            console.log('\n=== SPLIT RESULT ===');
+            console.log('Number of blocks:', rawBlocks.length);
+            rawBlocks.forEach((block, i) => {
+                console.log(`Block ${i+1}:`, JSON.stringify(block.substring(0, 100)));
+            });
+
+            const entries = [];
+            for (const block of rawBlocks) {
+                const trimmed = block.trim();
+                if (!trimmed) continue;
+
+                const entryText = trimmed.replace(/\s+/g, ' ').trim();
+
+                if (entryText.toLowerCase().startsWith('search using this query type')) {
+                    continue;
+                }
+                if (/^(home|about|browse|search|contact|map|essays?|collections?)(\s|$)/i.test(entryText)) {
+                    continue;
+                }
+                if (entryText.length < 20 && !/\d{4}/.test(entryText)) {
+                    continue;
+                }
+
+                entries.push(entryText);
+            }
+
+            return entries;
+        }
+
+        function testSplit() {
+            const input = document.getElementById('input').value;
+            const entries = splitEntries(input);
+
+            let output = `Found ${entries.length} entries:\n\n`;
+            entries.forEach((e, i) => {
+                output += `${i+1}. ${e.substring(0, 150)}${e.length > 150 ? '...' : ''}\n\n`;
+            });
+
+            document.getElementById('output').textContent = output;
+        }
+    </script>
+</body>
+</html>
