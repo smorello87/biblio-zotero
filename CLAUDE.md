@@ -11,11 +11,12 @@ This repository contains **two implementations** of a bibliography converter tha
 
 Both implementations support:
 - Web scraping from Omeka Classic websites
-- Local file input (.txt, .docx for Python; .txt for web)
+- Local file input (.txt, .docx, .pdf)
 - Copy/paste text input (web only)
 - LLM-powered parsing (OpenAI/OpenRouter)
 - CSL-JSON and RIS output formats
 - Author ditto mark expansion
+- ISBN/OCLC enrichment via Open Library and Google Books APIs
 
 **Key Files**:
 - `omeka_bib_to_zotero.py` - Python implementation (27 KB)
@@ -44,7 +45,7 @@ python3 -m http.server 8000
 
 **Dependencies**:
 ```bash
-pip install requests beautifulsoup4 python-docx
+pip install requests beautifulsoup4 python-docx pdfplumber Pillow
 ```
 
 **Interactive mode**:
@@ -65,6 +66,21 @@ python omeka_bib_to_zotero.py --file bibliography.txt --out output.json
 
 # From Word document
 python omeka_bib_to_zotero.py --file bibliography.docx --out output.json
+
+# From PDF document
+python omeka_bib_to_zotero.py --file bibliography.pdf --out output.json
+
+# From PDF with Vision OCR (for PDFs with encoding issues)
+OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py --file bibliography.pdf --vision-ocr --out output.json
+
+# With specific vision model
+OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py --file bibliography.pdf --vision-ocr --vision-model google/gemini-2.5-flash --out output.json
+
+# With ISBN enrichment (searches Open Library and Google Books)
+python omeka_bib_to_zotero.py --file bibliography.txt --enrich-isbn --out output.json
+
+# With LLM parsing AND ISBN enrichment
+OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py --use-llm openrouter --model openai/gpt-4o-mini --enrich-isbn --out output.json
 ```
 
 ### With OpenAI LLM parsing
@@ -106,7 +122,7 @@ print(f'First: {entries[0][:80]}...')  # Should start with 'Abbamonte, Salvatore
 The web app is a **client-side only** JavaScript application with three main files:
 
 #### `index.html` - UI Structure
-- **Input options**: URL scraping, file upload (.txt only), or paste text
+- **Input options**: URL scraping, file upload (.txt, .docx, .pdf), or paste text
 - **CORS proxy**: Checkbox to auto-prepend `https://corsproxy.io/?` to URLs
 - **Model selection**: Dropdown with pre-configured models:
   - `openai/gpt-oss-120b` (Very Cheap - Default)
@@ -117,6 +133,7 @@ The web app is a **client-side only** JavaScript application with three main fil
   - Custom model option
 - **API key storage**: localStorage with security warnings
 - **Test mode**: Checkbox to limit processing to 10 entries
+- **ISBN enrichment**: Checkbox to enrich book entries with ISBN/OCLC from Open Library and Google Books
 - **Progress indicators**: Real-time updates and logging
 - **Modal overlays**: CORS help and About sections
 - **Footer**: Full-width with developer credits and GNU GPL v3 license
@@ -162,8 +179,35 @@ The web app is a **client-side only** JavaScript application with three main fil
 - Security warnings about shared computers
 
 **File Reading**:
-- .txt files only (mammoth.js not included for .docx)
-- Uses FileReader API
+- .txt files via FileReader API
+- .docx files via mammoth.js (CDN)
+- .pdf files via PDF.js (CDN)
+
+**Vision OCR for PDFs**:
+- When PDF has encoding issues (garbled text), users can enable Vision OCR
+- Renders PDF pages to images using PDF.js canvas
+- Sends images to vision model (Qwen 3 VL, Gemini, GPT-4o, Claude) via OpenRouter
+- Vision model extracts text by "reading" the images
+- Available models: `qwen/qwen3-vl-235b-a22b-instruct` (recommended), `google/gemini-2.5-flash`, `openai/gpt-4o`, `anthropic/claude-sonnet-4`
+
+**ISBN Enrichment (`enrichItemsWithISBN`)**:
+- Optional feature enabled via checkbox in Step 4 (Output Options)
+- Only processes items with `type: "book"`
+- Searches Open Library API first, then Google Books as fallback
+- For pre-1970 books (before ISBN existed): searches for OCLC/LCCN instead
+- Fills in missing fields from API results (only fills gaps, doesn't overwrite):
+  - `ISBN` - ISBN-13 preferred, falls back to ISBN-10
+  - `OCLC` - OCLC number (Open Library only)
+  - `call-number` - LCCN (Open Library only)
+  - `number-of-pages` - page count
+  - `publisher` - publisher name
+  - `publisher-place` - publication location (Open Library only)
+  - `issued` - publication year
+  - `keyword` - subject keywords (up to 5)
+  - `abstract` - book description (Google Books only, truncated to 500 chars)
+- 200ms delay between API calls to respect rate limits
+- Uses CORS proxy (`corsproxy.io`) for Open Library calls
+- Google Books API doesn't require CORS proxy
 
 **Output Generation**:
 - Creates CSL-JSON or RIS format
@@ -174,7 +218,7 @@ The web app is a **client-side only** JavaScript application with three main fil
 
 See full architecture details in sections 1-8 below (Web Scraping, Entry Splitting, Author Expansion, LLM Parsing, Prompts, Output Formats, File Reading). Key differences from web app:
 - Supports both OpenAI and OpenRouter
-- Reads .docx files (python-docx)
+- Reads .docx files (python-docx) and .pdf files (pdfplumber)
 - Uses environment variables for API keys
 - Command-line arguments and interactive prompts
 
@@ -295,6 +339,27 @@ python -c "from omeka_bib_to_zotero import fetch_page_text, split_entries; print
 ### 6. File Reading (`read_local_file`)
 - .txt: UTF-8 text files
 - .docx: Word documents (requires python-docx)
+- .pdf: PDF documents (requires pdfplumber)
+
+### 6a. Vision OCR for PDFs (`read_pdf_with_vision`)
+- Uses pdfplumber to render PDF pages to images
+- Sends images to OpenRouter vision model API
+- Command-line: `--vision-ocr` flag enables, `--vision-model` selects model
+- Interactive mode prompts when processing PDF files
+- Available models: Qwen 3 VL 235B, Gemini 2.5 Flash, GPT-4o, Claude Sonnet 4
+
+### 6b. ISBN Enrichment (`enrich_items_with_isbn`)
+- Searches Open Library and Google Books for book metadata
+- Command-line: `--enrich-isbn` flag enables enrichment
+- Interactive mode prompts after LLM parsing
+- For books before 1970: searches for OCLC/LCCN instead of ISBN
+- Fills in missing fields (only fills gaps, doesn't overwrite):
+  - `ISBN`, `OCLC`, `call-number` (LCCN)
+  - `publisher`, `publisher-place`, `number-of-pages`
+  - `issued` (publication year), `keyword` (subjects)
+  - `abstract` (Google Books only)
+- 200ms delay between API calls to avoid rate limiting
+- No API key required (uses public APIs)
 
 ### 7. Interactive Prompts
 - Input source, format, LLM provider, model, API key

@@ -108,6 +108,391 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ==================== Vision OCR Functions ====================
+
+async function renderPdfPageToImage(pdf, pageNum, scale = 1.5) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    // Render page to canvas
+    await page.render({
+        canvasContext: context,
+        viewport: viewport
+    }).promise;
+
+    // Convert to base64 PNG
+    return canvas.toDataURL('image/png').split(',')[1];
+}
+
+async function callVisionModelForOCR(base64Images, apiKey, visionModel) {
+    const url = "https://openrouter.ai/api/v1/chat/completions";
+
+    // Build content array with all page images
+    const content = [
+        {
+            type: "text",
+            text: `You are extracting bibliography entries from PDF page images.
+
+IMPORTANT INSTRUCTIONS:
+1. Extract ALL bibliography entries exactly as they appear
+2. Each entry typically starts with an author name (e.g., "Smith, John.") or a ditto mark (—.) for repeated authors
+3. Preserve the exact text including years, titles, publishers, and all details
+4. Separate each bibliography entry with a blank line
+5. Do NOT summarize or paraphrase - extract the exact text
+6. If text is unclear, make your best attempt to read it accurately
+
+Output ONLY the extracted bibliography text, nothing else.`
+        }
+    ];
+
+    // Add all images
+    for (let i = 0; i < base64Images.length; i++) {
+        content.push({
+            type: "image_url",
+            image_url: {
+                url: `data:image/png;base64,${base64Images[i]}`
+            }
+        });
+    }
+
+    const payload = {
+        model: visionModel,
+        messages: [
+            {
+                role: "user",
+                content: content
+            }
+        ],
+        temperature: 0,
+        max_tokens: 16000
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Vision API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
+async function extractPdfWithVision(file, apiKey, visionModel, progressCallback) {
+    debug(`Using Vision OCR with model: ${visionModel}`);
+
+    const arrayBuffer = await file.arrayBuffer();
+    const typedArray = new Uint8Array(arrayBuffer);
+    const pdf = await pdfjsLib.getDocument(typedArray).promise;
+
+    debug(`PDF has ${pdf.numPages} pages`);
+
+    // Process pages in batches (most vision models can handle multiple images)
+    const batchSize = 4; // Process 4 pages at a time
+    let allText = '';
+
+    for (let i = 0; i < pdf.numPages; i += batchSize) {
+        const endPage = Math.min(i + batchSize, pdf.numPages);
+        const pageRange = `${i + 1}-${endPage}`;
+
+        if (progressCallback) {
+            progressCallback(`Vision OCR: Processing pages ${pageRange} of ${pdf.numPages}...`);
+        }
+        debug(`Rendering pages ${pageRange} to images...`);
+
+        // Render batch of pages to images
+        const base64Images = [];
+        for (let pageNum = i + 1; pageNum <= endPage; pageNum++) {
+            const base64 = await renderPdfPageToImage(pdf, pageNum);
+            base64Images.push(base64);
+        }
+
+        debug(`Sending ${base64Images.length} page images to vision model...`);
+        addLog(`Vision OCR: Processing pages ${pageRange}...`, 'info');
+
+        try {
+            const pageText = await callVisionModelForOCR(base64Images, apiKey, visionModel);
+            allText += pageText + '\n\n';
+        } catch (error) {
+            debug(`Vision OCR error for pages ${pageRange}: ${error.message}`);
+            addLog(`Vision OCR error for pages ${pageRange}: ${error.message}`, 'error');
+            throw error;
+        }
+
+        // Small delay between batches to avoid rate limiting
+        if (endPage < pdf.numPages) {
+            await sleep(500);
+        }
+    }
+
+    return allText;
+}
+
+// ==================== ISBN Enrichment Functions ====================
+
+function getYearFromItem(item) {
+    const issued = item.issued;
+    if (issued && typeof issued === 'object') {
+        const dateParts = issued['date-parts'];
+        if (Array.isArray(dateParts) && dateParts[0] && dateParts[0][0]) {
+            const year = parseInt(dateParts[0][0], 10);
+            if (!isNaN(year)) return year;
+        }
+    }
+    return null;
+}
+
+async function searchOpenLibrary(title, author, year) {
+    const params = new URLSearchParams();
+    params.set('title', title);
+    if (author) params.set('author', author);
+    if (year) params.set('first_publish_year', year.toString());
+    params.set('limit', '5');
+
+    // Use CORS proxy
+    const corsProxy = 'https://corsproxy.io/?';
+    const url = `${corsProxy}https://openlibrary.org/search.json?${params.toString()}`;
+
+    try {
+        const response = await fetch(url, { timeout: 10000 });
+        if (!response.ok) return null;
+
+        const data = await response.json();
+
+        if (data.numFound > 0 && data.docs && data.docs.length > 0) {
+            const doc = data.docs[0];
+            const result = {};
+
+            // Get ISBNs
+            if (doc.isbn && doc.isbn.length > 0) {
+                const isbns = doc.isbn;
+                const isbn13 = isbns.find(i => i.length === 13);
+                const isbn10 = isbns.find(i => i.length === 10);
+                result.ISBN = isbn13 || isbn10;
+            }
+
+            // Get OCLC numbers
+            if (doc.oclc && doc.oclc.length > 0) {
+                result.OCLC = Array.isArray(doc.oclc) ? doc.oclc[0] : doc.oclc;
+            }
+
+            // Get LCCN
+            if (doc.lccn && doc.lccn.length > 0) {
+                result['call-number'] = Array.isArray(doc.lccn) ? doc.lccn[0] : doc.lccn;
+            }
+
+            // Get page count
+            if (doc.number_of_pages_median) {
+                result['number-of-pages'] = doc.number_of_pages_median;
+            }
+
+            // Get publisher
+            if (doc.publisher && doc.publisher.length > 0) {
+                result.publisher = Array.isArray(doc.publisher) ? doc.publisher[0] : doc.publisher;
+            }
+
+            // Get publisher place
+            if (doc.publish_place && doc.publish_place.length > 0) {
+                result['publisher-place'] = Array.isArray(doc.publish_place) ? doc.publish_place[0] : doc.publish_place;
+            }
+
+            // Get publication year
+            if (doc.first_publish_year) {
+                result.issued = { 'date-parts': [[doc.first_publish_year]] };
+            }
+
+            // Get subjects/keywords (limit to first 5)
+            if (doc.subject && doc.subject.length > 0) {
+                result.keyword = doc.subject.slice(0, 5).join(', ');
+            }
+
+            return Object.keys(result).length > 0 ? result : null;
+        }
+    } catch (error) {
+        debug(`Open Library search error: ${error.message}`);
+    }
+
+    return null;
+}
+
+async function searchGoogleBooks(title, author) {
+    const queryParts = [];
+    if (title) queryParts.push(`intitle:${title}`);
+    if (author) queryParts.push(`inauthor:${author}`);
+
+    const query = queryParts.join('+');
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`;
+
+    try {
+        const response = await fetch(url, { timeout: 10000 });
+        if (!response.ok) return null;
+
+        const data = await response.json();
+
+        if (data.totalItems > 0 && data.items && data.items.length > 0) {
+            const volumeInfo = data.items[0].volumeInfo || {};
+            const result = {};
+
+            // Get ISBNs from industryIdentifiers
+            const identifiers = volumeInfo.industryIdentifiers || [];
+            for (const ident of identifiers) {
+                if (ident.type === 'ISBN_13') {
+                    result.ISBN = ident.identifier;
+                    break;
+                } else if (ident.type === 'ISBN_10' && !result.ISBN) {
+                    result.ISBN = ident.identifier;
+                }
+            }
+
+            // Get page count
+            if (volumeInfo.pageCount) {
+                result['number-of-pages'] = volumeInfo.pageCount;
+            }
+
+            // Get publisher
+            if (volumeInfo.publisher) {
+                result.publisher = volumeInfo.publisher;
+            }
+
+            // Get publication date/year
+            if (volumeInfo.publishedDate) {
+                const yearMatch = volumeInfo.publishedDate.match(/^(\d{4})/);
+                if (yearMatch) {
+                    result.issued = { 'date-parts': [[parseInt(yearMatch[1], 10)]] };
+                }
+            }
+
+            // Get categories/subjects
+            if (volumeInfo.categories && volumeInfo.categories.length > 0) {
+                result.keyword = volumeInfo.categories.slice(0, 5).join(', ');
+            }
+
+            // Get description/abstract (truncated)
+            if (volumeInfo.description) {
+                let desc = volumeInfo.description;
+                if (desc.length > 500) {
+                    desc = desc.substring(0, 497) + '...';
+                }
+                result.abstract = desc;
+            }
+
+            return Object.keys(result).length > 0 ? result : null;
+        }
+    } catch (error) {
+        debug(`Google Books search error: ${error.message}`);
+    }
+
+    return null;
+}
+
+async function enrichItemsWithISBN(items, progressCallback) {
+    const stats = { found: 0, notFound: 0, preIsbn: 0, skipped: 0 };
+
+    // Count books to process
+    const books = items.filter(item => item.type === 'book');
+    const totalBooks = books.length;
+
+    if (totalBooks === 0) {
+        debug('No books to enrich with ISBN');
+        return items;
+    }
+
+    debug(`Enriching ${totalBooks} books with ISBN/OCLC lookup...`);
+    addLog(`Starting ISBN enrichment for ${totalBooks} books...`, 'info');
+
+    let bookIndex = 0;
+    for (const item of items) {
+        // Only enrich books
+        if (item.type !== 'book') {
+            stats.skipped++;
+            continue;
+        }
+
+        bookIndex++;
+        const title = item.title || '';
+        let author = '';
+        if (item.author && Array.isArray(item.author) && item.author.length > 0) {
+            author = item.author[0].family || '';
+        }
+
+        const year = getYearFromItem(item);
+
+        if (progressCallback) {
+            progressCallback(`Enriching book ${bookIndex}/${totalBooks}...`);
+        }
+
+        debug(`[${bookIndex}/${totalBooks}] Looking up: ${title.substring(0, 50)}...`);
+
+        // Check if pre-ISBN era (before 1970)
+        const isPreIsbn = year !== null && year < 1970;
+
+        let result = null;
+
+        // Search Open Library first
+        result = await searchOpenLibrary(title, author, year);
+
+        // If not found and post-1970, try Google Books as fallback
+        if (!result && !isPreIsbn) {
+            await sleep(200); // Rate limiting
+            result = await searchGoogleBooks(title, author);
+        }
+
+        // Apply results
+        if (result) {
+            // Merge metadata (don't overwrite existing values)
+            for (const [key, value] of Object.entries(result)) {
+                if (!item[key]) {
+                    item[key] = value;
+                }
+            }
+
+            if (isPreIsbn) {
+                stats.preIsbn++;
+                if (result.OCLC || result['call-number']) {
+                    item.note = (item.note || '') + ' [Pre-ISBN publication; OCLC/LCCN found]';
+                    stats.found++;
+                } else {
+                    item.note = (item.note || '') + ' [Pre-ISBN publication (before 1970)]';
+                    stats.notFound++;
+                }
+            } else {
+                if (result.ISBN) {
+                    stats.found++;
+                } else {
+                    stats.notFound++;
+                }
+            }
+        } else {
+            if (isPreIsbn) {
+                stats.preIsbn++;
+                item.note = (item.note || '') + ' [Pre-ISBN publication (before 1970)]';
+            }
+            stats.notFound++;
+        }
+
+        // Rate limiting between requests
+        await sleep(200);
+    }
+
+    debug(`ISBN enrichment complete: ${stats.found} found, ${stats.notFound} not found, ${stats.preIsbn} pre-ISBN books, ${stats.skipped} non-books skipped`);
+    addLog(`ISBN enrichment: ${stats.found} found, ${stats.notFound} not found`, 'success');
+
+    return items;
+}
+
 // ==================== File Reading Functions ====================
 
 async function readTextFile(file) {
@@ -136,6 +521,112 @@ async function readDocxFile(file) {
     });
 }
 
+async function readPdfFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const arrayBuffer = e.target.result;
+                const typedArray = new Uint8Array(arrayBuffer);
+
+                // Load the PDF document
+                const pdf = await pdfjsLib.getDocument(typedArray).promise;
+                debug(`PDF loaded: ${pdf.numPages} pages`);
+
+                let allText = '';
+
+                // Extract text from each page
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const textContent = await page.getTextContent();
+
+                    // Combine text items into lines
+                    let pageText = '';
+                    let lastY = null;
+
+                    for (const item of textContent.items) {
+                        if (item.str) {
+                            // Check if this is a new line (significant Y change)
+                            if (lastY !== null && Math.abs(item.transform[5] - lastY) > 5) {
+                                pageText += '\n';
+                            }
+                            pageText += item.str;
+                            lastY = item.transform[5];
+                        }
+                    }
+
+                    allText += pageText + '\n';
+                }
+
+                // Now intelligently split into bibliography entries
+                // Bibliography entries typically start with:
+                // 1. Author name pattern: "Lastname, Firstname." or
+                // 2. Ditto marks: "—." or "———." or "______."
+                // 3. Anonymous entries: "Anonymous."
+
+                const lines = allText.split('\n');
+                const entries = [];
+                let currentEntry = '';
+
+                // Pattern to detect start of a new bibliography entry
+                // Matches: "Author, Name. Year" or "—. Year" or "Anonymous. Year"
+                const entryStartPattern = /^([A-Z][a-zA-Zà-ÿÀ-ß\-']+,\s+[A-Z]|—+\.?\s|_{3,}\.?\s|Anonymous\.)/;
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) continue;
+
+                    // Check if this line starts a new entry
+                    if (entryStartPattern.test(trimmedLine)) {
+                        // Save previous entry if exists
+                        if (currentEntry.trim()) {
+                            entries.push(currentEntry.trim());
+                        }
+                        currentEntry = trimmedLine;
+                    } else {
+                        // Continue current entry (add space to join lines)
+                        if (currentEntry) {
+                            currentEntry += ' ' + trimmedLine;
+                        } else {
+                            currentEntry = trimmedLine;
+                        }
+                    }
+                }
+
+                // Don't forget the last entry
+                if (currentEntry.trim()) {
+                    entries.push(currentEntry.trim());
+                }
+
+                debug(`PDF extraction found ${entries.length} bibliography entries`);
+
+                // Check for potential font encoding issues
+                // Look for suspicious patterns that indicate font encoding problems
+                const sampleText = entries.slice(0, 10).join(' ');
+                // Pattern for garbled years: lowercase letters/symbols where years should be
+                // e.g., "zffff." or "zf()." instead of "1985." or "1902."
+                const suspiciousYearPattern = /\.\s+[a-z][a-z\(\)\[\]]{2,5}[a-zA-Z]?\./g;
+                const normalYearPattern = /\.\s+\[?\d{4}[a-z]?\]?\./g;
+
+                const suspiciousMatches = sampleText.match(suspiciousYearPattern) || [];
+                const normalYears = sampleText.match(normalYearPattern) || [];
+
+                if (suspiciousMatches.length >= 2 && normalYears.length === 0) {
+                    debug('WARNING: PDF may have font encoding issues - years appear garbled');
+                    addLog('⚠️ WARNING: This PDF may have font encoding issues. Years and numbers appear as garbled text (e.g., "zffff" instead of "1985"). Consider copying text manually from the PDF viewer or using the "Paste Text" input option.', 'warning');
+                }
+
+                // Join with triple newlines to match expected entry separator format
+                resolve(entries.join('\n\n\n'));
+            } catch (error) {
+                reject(new Error('Failed to read PDF file: ' + error.message));
+            }
+        };
+        reader.onerror = (e) => reject(new Error('Failed to read PDF file'));
+        reader.readAsArrayBuffer(file);
+    });
+}
+
 async function readLocalFile(file) {
     const fileName = file.name.toLowerCase();
 
@@ -146,8 +637,13 @@ async function readLocalFile(file) {
             throw new Error('DOCX support not available. Please include mammoth.js library.');
         }
         return await readDocxFile(file);
+    } else if (fileName.endsWith('.pdf')) {
+        if (typeof pdfjsLib === 'undefined') {
+            throw new Error('PDF support not available. Please include pdf.js library.');
+        }
+        return await readPdfFile(file);
     } else {
-        throw new Error('Unsupported file format. Use .txt or .docx');
+        throw new Error('Unsupported file format. Use .txt, .docx, or .pdf');
     }
 }
 
@@ -661,10 +1157,21 @@ function initializeUI() {
     const fileField = document.getElementById('file-field');
     fileField.addEventListener('change', () => {
         const fileLabel = document.querySelector('.file-upload-text');
+        const pdfOcrOption = document.getElementById('pdf-ocr-option');
+
         if (fileField.files.length > 0) {
-            fileLabel.textContent = fileField.files[0].name;
+            const fileName = fileField.files[0].name;
+            fileLabel.textContent = fileName;
+
+            // Show PDF OCR option if a PDF is selected
+            if (fileName.toLowerCase().endsWith('.pdf')) {
+                pdfOcrOption.style.display = 'block';
+            } else {
+                pdfOcrOption.style.display = 'none';
+            }
         } else {
             fileLabel.textContent = 'Choose file...';
+            pdfOcrOption.style.display = 'none';
         }
     });
 
@@ -805,8 +1312,31 @@ async function processEntries() {
             if (!fileField.files || fileField.files.length === 0) {
                 throw new Error('Please select a file');
             }
-            updateProgress(10, 'Reading file...');
-            rawText = await readLocalFile(fileField.files[0]);
+
+            const file = fileField.files[0];
+            const isPdf = file.name.toLowerCase().endsWith('.pdf');
+            const useVisionOcr = document.getElementById('use-vision-ocr')?.checked;
+
+            if (isPdf && useVisionOcr) {
+                // Use Vision OCR for PDF
+                const apiKey = document.getElementById('api-key-field').value.trim();
+                if (!apiKey) {
+                    throw new Error('Please enter an OpenRouter API key for Vision OCR');
+                }
+                const visionModel = document.getElementById('vision-model-select').value;
+
+                updateProgress(10, 'Extracting PDF with Vision AI...');
+                addLog(`Using Vision OCR with model: ${visionModel}`, 'info');
+
+                rawText = await extractPdfWithVision(file, apiKey, visionModel, (msg) => {
+                    updateProgress(15, msg);
+                });
+
+                addLog('Vision OCR extraction complete!', 'success');
+            } else {
+                updateProgress(10, 'Reading file...');
+                rawText = await readLocalFile(file);
+            }
         } else if (inputSource === 'text') {
             const textField = document.getElementById('text-field');
             rawText = textField.value.trim();
@@ -858,6 +1388,16 @@ async function processEntries() {
         const result = await batchParseWithLLM(entries, 'openrouter', model, apiKey, batchSize);
         state.parsedItems = result.items;
         state.failedEntries = result.failed;
+
+        // ISBN enrichment if enabled
+        const enrichIsbn = document.getElementById('enrich-isbn')?.checked;
+        if (enrichIsbn) {
+            updateProgress(90, 'Enriching books with ISBN lookup...');
+            addLog('Starting ISBN/OCLC enrichment...', 'info');
+            state.parsedItems = await enrichItemsWithISBN(state.parsedItems, (msg) => {
+                updateProgress(92, msg);
+            });
+        }
 
         // Generate output
         updateProgress(95, 'Generating output...');

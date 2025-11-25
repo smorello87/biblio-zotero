@@ -37,7 +37,7 @@
                             <input type="radio" name="input-source" value="file">
                             <span class="radio-text">
                                 <strong>Local File</strong>
-                                <small>Upload .txt or .docx file</small>
+                                <small>Upload .txt, .docx, or .pdf file</small>
                             </span>
                         </label>
                         <label class="radio-label">
@@ -71,12 +71,31 @@
                 <div id="file-input" class="source-input" style="display: none;">
                     <label for="file-field">Choose File:</label>
                     <div class="file-upload-wrapper">
-                        <input type="file" id="file-field" accept=".txt,.docx">
+                        <input type="file" id="file-field" accept=".txt,.docx,.pdf">
                         <label for="file-field" class="file-upload-label">
                             <span class="file-upload-text">Choose file...</span>
                         </label>
                     </div>
-                    <p class="help-text">Supported formats: .txt (plain text), .docx (Word document)</p>
+                    <p class="help-text">Supported formats: .txt (plain text), .docx (Word document), .pdf (PDF document)</p>
+
+                    <div class="checkbox-group" id="pdf-ocr-option" style="display: none; margin-top: 15px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="use-vision-ocr" checked>
+                            <span>Use Vision AI for PDF text extraction</span>
+                        </label>
+                        <div class="info-box" style="margin-top: 10px;">
+                            <strong>💡 Vision OCR:</strong> When enabled, uses a vision AI model to read PDF pages as images.
+                            This produces much better results for PDFs with encoding issues but costs more API credits.
+                            <br><br>
+                            <strong>Vision Model:</strong>
+                            <select id="vision-model-select" class="select-input" style="margin-top: 5px; width: 100%;">
+                                <option value="qwen/qwen3-vl-235b-a22b-instruct">Qwen 3 VL 235B (Recommended)</option>
+                                <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (Fast & Cheap)</option>
+                                <option value="openai/gpt-4o">GPT-4o (High Quality)</option>
+                                <option value="anthropic/claude-sonnet-4">Claude Sonnet 4 (High Quality)</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="text-input" class="source-input" style="display: none;">
@@ -200,6 +219,24 @@
                     </div>
                 </div>
 
+                <div class="checkbox-group" style="margin-top: 15px;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enrich-isbn">
+                        <span>Enrich books with ISBN/OCLC lookup</span>
+                    </label>
+                    <div class="info-box" style="margin-top: 10px;">
+                        <strong>💡 ISBN Enrichment:</strong><br>
+                        When enabled, searches Open Library and Google Books to find ISBNs for book entries.
+                        For books published before 1970 (pre-ISBN era), searches for OCLC or Library of Congress numbers instead.
+                        <ul style="margin: 8px 0; padding-left: 20px;">
+                            <li>Only affects items with type "book"</li>
+                            <li>Adds ISBN, OCLC, LCCN, and page count when found</li>
+                            <li>200ms delay between lookups to respect API limits</li>
+                        </ul>
+                        Note: This adds processing time (~1 second per book).
+                    </div>
+                </div>
+
                 <div class="input-group" style="margin-top: 20px;">
                     <label for="output-filename-field">Output Filename:</label>
                     <input type="text" id="output-filename-field" class="text-input" value="zotero_bibliography.json">
@@ -319,7 +356,7 @@ cors-anywhere<br>
 
                         <h3>Features</h3>
                         <ul>
-                            <li><strong>Multiple Input Methods:</strong> Web scraping with automatic CORS proxy, file upload (.txt/.docx), or direct text paste</li>
+                            <li><strong>Multiple Input Methods:</strong> Web scraping with automatic CORS proxy, file upload (.txt/.docx/.pdf), or direct text paste</li>
                             <li><strong>AI-Powered Parsing:</strong> Uses OpenRouter API to access multiple AI models (Claude, GPT, Gemini, etc.)</li>
                             <li><strong>Smart Processing:</strong> Automatic entry splitting, author ditto mark expansion, and format detection</li>
                             <li><strong>Flexible Output:</strong> CSL-JSON (recommended) or RIS format for Zotero import</li>
@@ -376,6 +413,11 @@ cors-anywhere<br>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Set the worker source for PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
     <script src="app.js"></script>
 </body>
 </html>

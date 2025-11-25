@@ -12,7 +12,7 @@ python omeka_bib_to_zotero.py \
   --url https://italianamericanimprints.omeka.net/actual-bibliography \
   --out zotero_bibliography.json --format csljson
 
-# From local file (txt or docx)
+# From local file (txt, docx, or pdf)
 python omeka_bib_to_zotero.py \
   --file bibliography.txt \
   --out zotero_bibliography.json --format csljson
@@ -34,14 +34,14 @@ python omeka_bib_to_zotero.py --file bibliography.docx --format ris --out zotero
 
 NOTES
 -----
-• Supports input from URLs (web scraping) or local files (.txt, .docx)
+• Supports input from URLs (web scraping) or local files (.txt, .docx, .pdf)
 • If you don't provide an API key/LLM, the script will still fetch & split the bibliography into entries and
   produce a very minimal CSL‑JSON/RIS where each citation is preserved verbatim in the `title` field
   (so you can import now and refine later). For high‑quality structured fields (authors, year, title, etc.),
   enable LLM parsing with your OpenAI or OpenRouter key.
 • The script expands author ditto marks (e.g., "______.") and em-dashes (———) by repeating the previous author.
 • Output files: main output (json/ris) + `failed_entries.txt` for any entries that could not be parsed by the LLM.
-• Dependencies: requests, beautifulsoup4, python-docx (optional, for .docx support)
+• Dependencies: requests, beautifulsoup4, python-docx (optional, for .docx), pdfplumber (optional, for .pdf)
 
 ZOTERO FORMATS
 --------------
@@ -70,6 +70,22 @@ try:
 except ImportError:
     DOCX_AVAILABLE = False
 
+# Try to import pdfplumber for PDF support
+try:
+    import pdfplumber
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+# Try to import PIL for image handling (needed for vision OCR)
+try:
+    from PIL import Image
+    import io
+    import base64
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 # -------------- Utilities --------------
 
 def debug(msg: str):
@@ -92,8 +108,209 @@ def read_docx_file(file_path: str) -> str:
     return '\n\n'.join(paragraphs)
 
 
+def read_pdf_file(file_path: str) -> str:
+    """Read content from a .pdf file.
+
+    Intelligently detects bibliography entry boundaries based on:
+    - Author name patterns (Lastname, Firstname.)
+    - Ditto marks (—. or ______.)
+    - Anonymous entries
+    """
+    if not PDF_AVAILABLE:
+        raise ImportError("pdfplumber not installed. Install with: pip install pdfplumber")
+
+    all_text = ''
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                all_text += text + '\n'
+
+    # Pattern to detect start of a new bibliography entry
+    # Matches: "Author, Name." or "—." or "______." or "Anonymous."
+    entry_start_pattern = re.compile(
+        r'^([A-Z][a-zA-Zà-ÿÀ-ß\-\']+,\s+[A-Z]|—+\.?\s|_{3,}\.?\s|Anonymous\.)',
+        re.MULTILINE
+    )
+
+    lines = all_text.split('\n')
+    entries = []
+    current_entry = ''
+
+    for line in lines:
+        trimmed_line = line.strip()
+        if not trimmed_line:
+            continue
+
+        # Check if this line starts a new entry
+        if entry_start_pattern.match(trimmed_line):
+            # Save previous entry if exists
+            if current_entry.strip():
+                entries.append(current_entry.strip())
+            current_entry = trimmed_line
+        else:
+            # Continue current entry (add space to join lines)
+            if current_entry:
+                current_entry += ' ' + trimmed_line
+            else:
+                current_entry = trimmed_line
+
+    # Don't forget the last entry
+    if current_entry.strip():
+        entries.append(current_entry.strip())
+
+    debug(f"PDF extraction found {len(entries)} bibliography entries")
+
+    # Check for potential font encoding issues
+    # Look for suspicious patterns that indicate font encoding problems
+    sample_text = ' '.join(entries[:10])
+    # Pattern for garbled years: lowercase letters/symbols where years should be (after author, before title)
+    # e.g., "zffff." or "zf()." or "zfqM." instead of "1985." or "1902."
+    suspicious_year_pattern = re.compile(r'\.\s+[a-z][a-z\(\)\[\]]{2,5}[a-zA-Z]?\.')
+    normal_year_pattern = re.compile(r'\.\s+\[?\d{4}[a-z]?\]?\.')
+
+    suspicious_matches = suspicious_year_pattern.findall(sample_text)
+    normal_years = normal_year_pattern.findall(sample_text)
+
+    if len(suspicious_matches) >= 2 and len(normal_years) == 0:
+        debug("WARNING: PDF may have font encoding issues - years appear garbled (e.g., 'zffff' instead of '1985')")
+        debug("Consider copying text manually from the PDF viewer or using a different source file.")
+
+    # Join with triple newlines to match the expected entry separator format
+    return '\n\n\n'.join(entries)
+
+
+def pdf_page_to_base64(page, resolution: int = 150) -> str:
+    """Convert a pdfplumber page to a base64-encoded PNG image."""
+    if not PIL_AVAILABLE:
+        raise ImportError("Pillow not installed. Install with: pip install Pillow")
+
+    # Render page to image
+    img = page.to_image(resolution=resolution)
+
+    # Convert to PNG bytes
+    img_buffer = io.BytesIO()
+    img.original.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
+
+    # Encode to base64
+    return base64.b64encode(img_buffer.read()).decode('utf-8')
+
+
+def call_vision_model_for_ocr(base64_images: List[str], api_key: str, model: str) -> str:
+    """Call OpenRouter vision model to extract text from PDF page images."""
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    # Build content array with text prompt and all images
+    content = [
+        {
+            "type": "text",
+            "text": """You are extracting bibliography entries from PDF page images.
+
+IMPORTANT INSTRUCTIONS:
+1. Extract ALL bibliography entries exactly as they appear
+2. Each entry typically starts with an author name (e.g., "Smith, John.") or a ditto mark (—.) for repeated authors
+3. Preserve the exact text including years, titles, publishers, and all details
+4. Separate each bibliography entry with a blank line
+5. Do NOT summarize or paraphrase - extract the exact text
+6. If text is unclear, make your best attempt to read it accurately
+
+Output ONLY the extracted bibliography text, nothing else."""
+        }
+    ]
+
+    # Add all images
+    for base64_img in base64_images:
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{base64_img}"
+            }
+        })
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0,
+        "max_tokens": 16000
+    }
+
+    # Retry with exponential backoff
+    max_retries = 3
+    base_delay = 2
+
+    for attempt in range(max_retries):
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=300)
+            r.raise_for_status()
+            data = r.json()
+            return data["choices"][0]["message"]["content"]
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                debug(f"Vision API timeout (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                raise
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 429 and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                debug(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                raise
+
+
+def read_pdf_with_vision(file_path: str, api_key: str, vision_model: str) -> str:
+    """Read PDF using vision model OCR for better text extraction."""
+    if not PDF_AVAILABLE:
+        raise ImportError("pdfplumber not installed. Install with: pip install pdfplumber")
+    if not PIL_AVAILABLE:
+        raise ImportError("Pillow not installed. Install with: pip install Pillow")
+
+    debug(f"Using Vision OCR with model: {vision_model}")
+
+    all_text = ''
+    batch_size = 4  # Process 4 pages at a time
+
+    with pdfplumber.open(file_path) as pdf:
+        total_pages = len(pdf.pages)
+        debug(f"PDF has {total_pages} pages")
+
+        for i in range(0, total_pages, batch_size):
+            end_page = min(i + batch_size, total_pages)
+            page_range = f"{i + 1}-{end_page}"
+
+            debug(f"Vision OCR: Processing pages {page_range} of {total_pages}...")
+
+            # Convert pages to base64 images
+            base64_images = []
+            for page_num in range(i, end_page):
+                base64_img = pdf_page_to_base64(pdf.pages[page_num])
+                base64_images.append(base64_img)
+
+            # Call vision model
+            try:
+                page_text = call_vision_model_for_ocr(base64_images, api_key, vision_model)
+                all_text += page_text + '\n\n'
+            except Exception as e:
+                debug(f"Vision OCR error for pages {page_range}: {e}")
+                raise
+
+            # Small delay between batches
+            if end_page < total_pages:
+                time.sleep(0.5)
+
+    return all_text
+
+
 def read_local_file(file_path: str) -> str:
-    """Read content from a local txt or docx file."""
+    """Read content from a local txt, docx, or pdf file."""
     path = Path(file_path)
 
     if not path.exists():
@@ -107,8 +324,10 @@ def read_local_file(file_path: str) -> str:
         if suffix == '.doc':
             debug("Warning: .doc format requires conversion. Use .docx if possible.")
         return read_docx_file(file_path)
+    elif suffix == '.pdf':
+        return read_pdf_file(file_path)
     else:
-        raise ValueError(f"Unsupported file format: {suffix}. Use .txt or .docx")
+        raise ValueError(f"Unsupported file format: {suffix}. Use .txt, .docx, or .pdf")
 
 
 def fetch_page_text(url: str) -> str:
@@ -451,6 +670,241 @@ def batch_parse_with_llm(entries: List[str], provider: Optional[str], model: Opt
 
     return results
 
+# -------------- ISBN Enrichment --------------
+
+def get_year_from_item(item: Dict[str, Any]) -> Optional[int]:
+    """Extract publication year from CSL-JSON item."""
+    issued = item.get("issued", {})
+    if isinstance(issued, dict):
+        date_parts = issued.get("date-parts", [])
+        if date_parts and isinstance(date_parts[0], list) and date_parts[0]:
+            try:
+                return int(date_parts[0][0])
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def search_open_library(title: str, author: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Search Open Library for book metadata."""
+    # Build search query
+    params = {"title": title}
+    if author:
+        params["author"] = author
+    if year:
+        params["first_publish_year"] = str(year)
+
+    query = "&".join(f"{k}={requests.utils.quote(str(v))}" for k, v in params.items())
+    url = f"https://openlibrary.org/search.json?{query}&limit=5"
+
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        if data.get("numFound", 0) > 0 and data.get("docs"):
+            doc = data["docs"][0]
+            result = {}
+
+            # Get ISBNs
+            if doc.get("isbn"):
+                isbns = doc["isbn"]
+                # Prefer ISBN-13 (starts with 978 or 979)
+                isbn_13 = next((i for i in isbns if len(i) == 13), None)
+                isbn_10 = next((i for i in isbns if len(i) == 10), None)
+                result["ISBN"] = isbn_13 or isbn_10
+
+            # Get OCLC numbers
+            if doc.get("oclc"):
+                result["OCLC"] = doc["oclc"][0] if isinstance(doc["oclc"], list) else doc["oclc"]
+
+            # Get LCCN
+            if doc.get("lccn"):
+                result["call-number"] = doc["lccn"][0] if isinstance(doc["lccn"], list) else doc["lccn"]
+
+            # Get page count
+            if doc.get("number_of_pages_median"):
+                result["number-of-pages"] = doc["number_of_pages_median"]
+
+            # Get publisher
+            if doc.get("publisher"):
+                publishers = doc["publisher"]
+                if isinstance(publishers, list) and publishers:
+                    result["publisher"] = publishers[0]
+                elif isinstance(publishers, str):
+                    result["publisher"] = publishers
+
+            # Get publisher place
+            if doc.get("publish_place"):
+                places = doc["publish_place"]
+                if isinstance(places, list) and places:
+                    result["publisher-place"] = places[0]
+                elif isinstance(places, str):
+                    result["publisher-place"] = places
+
+            # Get publication year
+            if doc.get("first_publish_year"):
+                result["issued"] = {"date-parts": [[doc["first_publish_year"]]]}
+
+            # Get subjects (for potential future use)
+            if doc.get("subject"):
+                subjects = doc["subject"][:5]  # Limit to first 5
+                result["keyword"] = ", ".join(subjects)
+
+            return result if result else None
+
+    except Exception as e:
+        debug(f"Open Library search error: {e}")
+
+    return None
+
+
+def search_google_books(title: str, author: str) -> Optional[Dict[str, Any]]:
+    """Search Google Books for book metadata (fallback)."""
+    query_parts = []
+    if title:
+        query_parts.append(f"intitle:{title}")
+    if author:
+        query_parts.append(f"inauthor:{author}")
+
+    query = "+".join(query_parts)
+    url = f"https://www.googleapis.com/books/v1/volumes?q={requests.utils.quote(query)}&maxResults=5"
+
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        if data.get("totalItems", 0) > 0 and data.get("items"):
+            volume_info = data["items"][0].get("volumeInfo", {})
+            result = {}
+
+            # Get ISBNs from industryIdentifiers
+            identifiers = volume_info.get("industryIdentifiers", [])
+            for ident in identifiers:
+                if ident.get("type") == "ISBN_13":
+                    result["ISBN"] = ident["identifier"]
+                    break
+                elif ident.get("type") == "ISBN_10" and "ISBN" not in result:
+                    result["ISBN"] = ident["identifier"]
+
+            # Get page count
+            if volume_info.get("pageCount"):
+                result["number-of-pages"] = volume_info["pageCount"]
+
+            # Get publisher
+            if volume_info.get("publisher"):
+                result["publisher"] = volume_info["publisher"]
+
+            # Get publication date/year
+            if volume_info.get("publishedDate"):
+                pub_date = volume_info["publishedDate"]
+                # Extract year from date string (could be "2020", "2020-01", or "2020-01-15")
+                year_match = re.match(r"(\d{4})", pub_date)
+                if year_match:
+                    result["issued"] = {"date-parts": [[int(year_match.group(1))]]}
+
+            # Get categories/subjects
+            if volume_info.get("categories"):
+                result["keyword"] = ", ".join(volume_info["categories"][:5])
+
+            # Get description/abstract (truncated)
+            if volume_info.get("description"):
+                desc = volume_info["description"]
+                if len(desc) > 500:
+                    desc = desc[:497] + "..."
+                result["abstract"] = desc
+
+            return result if result else None
+
+    except Exception as e:
+        debug(f"Google Books search error: {e}")
+
+    return None
+
+
+def enrich_items_with_isbn(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Enrich book items with ISBN/OCLC/LCCN from Open Library and Google Books."""
+    enriched = []
+    stats = {"found": 0, "not_found": 0, "pre_isbn": 0, "skipped": 0}
+
+    # Count books to process
+    books = [item for item in items if item.get("type") == "book"]
+    total_books = len(books)
+
+    if total_books == 0:
+        debug("No books to enrich with ISBN")
+        return items
+
+    debug(f"Enriching {total_books} books with ISBN/OCLC lookup...")
+
+    book_index = 0
+    for item in items:
+        # Only enrich books
+        if item.get("type") != "book":
+            enriched.append(item)
+            stats["skipped"] += 1
+            continue
+
+        book_index += 1
+        title = item.get("title", "")
+        author = ""
+        if item.get("author") and isinstance(item["author"], list) and item["author"]:
+            first_author = item["author"][0]
+            author = first_author.get("family", "")
+
+        year = get_year_from_item(item)
+
+        debug(f"[{book_index}/{total_books}] Looking up: {title[:50]}...")
+
+        # Check if pre-ISBN era (before 1970)
+        is_pre_isbn = year is not None and year < 1970
+
+        result = None
+
+        # Search Open Library first
+        result = search_open_library(title, author, year)
+
+        # If not found and post-1970, try Google Books as fallback
+        if not result and not is_pre_isbn:
+            time.sleep(0.2)  # Rate limiting
+            result = search_google_books(title, author)
+
+        # Apply results
+        if result:
+            # Merge metadata (don't overwrite existing values)
+            for key, value in result.items():
+                if key not in item or not item[key]:
+                    item[key] = value
+
+            if is_pre_isbn:
+                stats["pre_isbn"] += 1
+                if "OCLC" in result or "call-number" in result:
+                    item["note"] = item.get("note", "") + " [Pre-ISBN publication; OCLC/LCCN found]"
+                    stats["found"] += 1
+                else:
+                    item["note"] = item.get("note", "") + " [Pre-ISBN publication (before 1970)]"
+                    stats["not_found"] += 1
+            else:
+                if "ISBN" in result:
+                    stats["found"] += 1
+                else:
+                    stats["not_found"] += 1
+        else:
+            if is_pre_isbn:
+                stats["pre_isbn"] += 1
+                item["note"] = item.get("note", "") + " [Pre-ISBN publication (before 1970)]"
+            stats["not_found"] += 1
+
+        enriched.append(item)
+
+        # Rate limiting between requests
+        time.sleep(0.2)
+
+    debug(f"ISBN enrichment complete: {stats['found']} found, {stats['not_found']} not found, {stats['pre_isbn']} pre-ISBN books, {stats['skipped']} non-books skipped")
+    return enriched
+
+
 # -------------- Output Writers --------------
 
 def write_csl_json(items: List[Dict[str, Any]], out_path: str):
@@ -534,13 +988,13 @@ def prompt_input_source() -> tuple[str, Optional[str]]:
     """Prompt for input source (URL or local file)."""
     print("\nChoose input source:")
     print("  1. URL (web scraping)")
-    print("  2. Local file (.txt or .docx)")
+    print("  2. Local file (.txt, .docx, or .pdf)")
     choice = input("Enter choice (1 or 2): ").strip()
 
     if choice == "2":
         # Local file
         print("\nEnter the path to your bibliography file:")
-        print("Supported formats: .txt, .docx")
+        print("Supported formats: .txt, .docx, .pdf")
         file_path = input("File path: ").strip()
         return ("file", file_path)
     else:
@@ -638,17 +1092,60 @@ def prompt_max_entries() -> Optional[int]:
     return None
 
 
+def prompt_enrich_isbn() -> bool:
+    """Prompt whether to enrich book entries with ISBN lookup."""
+    print("\nEnrich book entries with ISBN/OCLC lookup?")
+    print("  This searches Open Library and Google Books to find ISBNs.")
+    print("  For books published before 1970, it looks for OCLC/LCCN instead.")
+    print("  1. No (skip ISBN enrichment)")
+    print("  2. Yes (enrich books with ISBN lookup)")
+    choice = input("Enter choice (1 or 2): ").strip()
+    return choice == "2"
+
+
+def prompt_vision_ocr() -> tuple[bool, Optional[str]]:
+    """Prompt whether to use vision OCR for PDF files."""
+    print("\nUse Vision AI for PDF text extraction?")
+    print("  Vision OCR uses AI to read PDF pages as images - much better for PDFs with encoding issues")
+    print("  1. No (use standard text extraction)")
+    print("  2. Yes (recommended for problematic PDFs)")
+    choice = input("Enter choice (1 or 2): ").strip()
+
+    if choice == "2":
+        print("\nSelect vision model:")
+        print("  1. Qwen 3 VL 235B (Recommended)")
+        print("  2. Gemini 2.5 Flash (Fast & Cheap)")
+        print("  3. GPT-4o (High Quality)")
+        print("  4. Claude Sonnet 4 (High Quality)")
+        model_choice = input("Enter choice (1-4): ").strip()
+
+        models = {
+            "1": "qwen/qwen3-vl-235b-a22b-instruct",
+            "2": "google/gemini-2.5-flash",
+            "3": "openai/gpt-4o",
+            "4": "anthropic/claude-sonnet-4"
+        }
+        vision_model = models.get(model_choice, "qwen/qwen3-vl-235b-a22b-instruct")
+        return (True, vision_model)
+
+    return (False, None)
+
+
 # -------------- Main --------------
 
 def main():
     ap = argparse.ArgumentParser(description="Convert Omeka bibliography page or local file to Zotero-importable file.")
     ap.add_argument("--url", default=None, help="Source URL (Omeka bibliography page)")
-    ap.add_argument("--file", default=None, help="Local file path (.txt or .docx)")
+    ap.add_argument("--file", default=None, help="Local file path (.txt, .docx, or .pdf)")
     ap.add_argument("--out", default=None, help="Output file path (e.g., zotero_bibliography.json / .ris)")
     ap.add_argument("--format", choices=["csljson", "ris"], default=None, help="Output format (default: csljson)")
     ap.add_argument("--use-llm", choices=["openai", "openrouter"], default=None, help="Use an LLM to parse entries into structured fields")
     ap.add_argument("--model", default=None, help="Model name for the chosen LLM provider")
     ap.add_argument("--max", type=int, default=None, help="Process only the first N entries (for testing)")
+    ap.add_argument("--vision-ocr", action="store_true", help="Use vision AI to extract text from PDF (recommended for PDFs with encoding issues)")
+    ap.add_argument("--vision-model", default="qwen/qwen3-vl-235b-a22b-instruct",
+                    help="Vision model for PDF OCR (default: qwen/qwen3-vl-235b-a22b-instruct)")
+    ap.add_argument("--enrich-isbn", action="store_true", help="Enrich book entries with ISBN/OCLC lookup from Open Library and Google Books")
     args = ap.parse_args()
 
     # Determine input source
@@ -676,13 +1173,37 @@ def main():
 
     max_entries = args.max if args.max is not None else prompt_max_entries()
 
+    # Check if we should use vision OCR for PDF files
+    use_vision_ocr = args.vision_ocr
+    vision_model = args.vision_model
+    is_pdf = source_type == "file" and source_path.lower().endswith('.pdf')
+
+    # If PDF and vision OCR not specified via args, prompt interactively
+    if is_pdf and not args.vision_ocr and not args.url:
+        use_vision_ocr, vision_model_choice = prompt_vision_ocr()
+        if vision_model_choice:
+            vision_model = vision_model_choice
+
     # Fetch content based on source type
     if source_type == "url":
         debug(f"Fetching bibliography from {source_path}")
         raw = fetch_page_text(source_path)
     else:  # file
         debug(f"Reading bibliography from file: {source_path}")
-        raw = read_local_file(source_path)
+
+        if is_pdf and use_vision_ocr:
+            # Use vision OCR for PDF - need API key
+            ocr_api_key = os.getenv("OPENROUTER_API_KEY")
+            if not ocr_api_key:
+                print("\nVision OCR requires an OpenRouter API key.")
+                ocr_api_key = input("Enter OpenRouter API Key: ").strip()
+                if not ocr_api_key:
+                    raise SystemExit("OpenRouter API key required for vision OCR")
+                os.environ["OPENROUTER_API_KEY"] = ocr_api_key
+
+            raw = read_pdf_with_vision(source_path, ocr_api_key, vision_model)
+        else:
+            raw = read_local_file(source_path)
 
     debug("Splitting into entries…")
     entries = split_entries(raw)
@@ -694,6 +1215,15 @@ def main():
     debug(f"Total entries: {len(entries)}")
 
     items = batch_parse_with_llm(entries, provider=provider, model=model)
+
+    # Check if we should enrich with ISBN lookup
+    enrich_isbn = args.enrich_isbn
+    if not enrich_isbn and not args.enrich_isbn:
+        # Interactive prompt if not specified via CLI
+        enrich_isbn = prompt_enrich_isbn()
+
+    if enrich_isbn:
+        items = enrich_items_with_isbn(items)
 
     if fmt == "csljson":
         write_csl_json(items, out_path)
