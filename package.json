@@ -8,7 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check app.js && node --check server/worker.js && node --check scripts/verify-release.mjs && bun run test && bun run build",
+    "check": "node --check app.js && node --check server/worker.js && node --check scripts/verify-release.mjs && node --test tests/*.test.mjs && node scripts/build.mjs",
     "worker:dev": "npm run build && wrangler dev"
   },
   "dependencies": {
