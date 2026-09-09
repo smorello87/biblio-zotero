@@ -40,13 +40,28 @@ function validateModel(model) {
   return model;
 }
 
-async function authenticate(request, env) {
+async function verifierConfigs(env) {
   const configs = await Promise.all([AUDIENCE, 'cail:gateway'].map(expectedAudience => loadIdentityVerifierConfig({ jwks: env.CAIL_IDENTITY_JWKS, issuer: env.CAIL_IDENTITY_ISSUER, expectedAudience, supportedIssuers: [CAIL_CANONICAL_ISSUER] })));
   if (configs.some(result => !result.ok)) throw new AppError('identity_unavailable', 'Sign-in verification is temporarily unavailable.', 503);
+  return configs.map(result => result.config);
+}
+
+async function readiness(env) {
+  await verifierConfigs(env);
+  if (!env.ASSETS || typeof env.ASSETS.fetch !== 'function') throw new AppError('assets_unavailable', 'Application assets are unavailable.', 503);
+  const asset = await env.ASSETS.fetch(new Request(`${ORIGIN}/`));
+  const available = asset.ok && asset.headers.get('content-type')?.includes('text/html');
+  await asset.body?.cancel();
+  if (!available) throw new AppError('assets_unavailable', 'Application assets are unavailable.', 503);
+  return json({ status: 'ready', version_id: env.CF_VERSION_METADATA?.id || null, tag: env.CF_VERSION_METADATA?.tag || null });
+}
+
+async function authenticate(request, env) {
+  const configs = await verifierConfigs(env);
   const keyring = readIdentityKeyring(request.headers);
   if (!keyring) throw new AppError('authentication_required', 'Sign in with CUNY to continue.', 401);
-  const identity = await verifyIdentityJwt(keyring.appJwt, configs[0].config);
-  if (!identity || !await verifyKeyringGatewayJwt(keyring, configs[1].config, identity.subject)) throw new AppError('invalid_credential', 'Your sign-in has expired or is invalid. Sign in again.', 401);
+  const identity = await verifyIdentityJwt(keyring.appJwt, configs[0]);
+  if (!identity || !await verifyKeyringGatewayJwt(keyring, configs[1], identity.subject)) throw new AppError('invalid_credential', 'Your sign-in has expired or is invalid. Sign in again.', 401);
   return { kind: 'jwt', token: keyring.gatewayJwt };
 }
 
@@ -55,15 +70,19 @@ export function createHandler({ fetchImpl = fetch } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
     if (url.origin !== ORIGIN) return json({ error: { code: 'not_found', message: 'Not found.' } }, 404);
-    if (url.pathname === '/bibliography/health') return json({ status: 'ready' });
     const suppliedId = request.headers.get('x-cail-request-id');
     const requestId = UUID.test(suppliedId || '') ? suppliedId : crypto.randomUUID();
     try {
+      if (url.pathname === '/bibliography/health' && ['GET', 'HEAD'].includes(request.method)) return await readiness(env);
       // This Worker is binding-only. Doorway owns request-time Admission checks.
       // No public worker origin or application-credential fallback is exposed.
       const credential = await authenticate(request, env);
       if (!['GET', 'HEAD', 'POST'].includes(request.method)) throw new AppError('method_not_allowed', 'Method not allowed.', 405);
       if (request.method === 'POST' && request.headers.get('origin') !== ORIGIN) throw new AppError('invalid_origin', 'Reload this tool from the CUNY AI Lab tools page.', 403);
+      if (url.pathname === '/bibliography' && ['GET', 'HEAD'].includes(request.method)) {
+        url.pathname = '/bibliography/';
+        return new Response(null, { status: 308, headers: { location: url.href, 'cache-control': 'no-store' } });
+      }
       const signal = AbortSignal.any([request.signal, AbortSignal.timeout(180000)]);
       const path = url.pathname.replace(/^\/bibliography/, '');
       if (path === '/api/session' && request.method === 'GET') return json({ authenticated: true });

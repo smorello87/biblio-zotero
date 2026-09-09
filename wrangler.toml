@@ -15,3 +15,6 @@ SCRAPE_HOSTS = "italianamericanimprints.omeka.net"
 # Install CAIL_IDENTITY_JWKS as the exact pinned verifier key set before release.
 # Doorway must be the only ingress, via a service binding with current Admission
 # checks and both cail:bibliography and cail:gateway JWT legs.
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"

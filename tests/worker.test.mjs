@@ -66,3 +66,27 @@ test('rejects cross-origin writes, direct origins, and private URL fetching', as
   assert.equal((await handle(new Request('https://direct.workers.dev/api/quota'), env)).status, 404);
   assert.equal((await handle(await request('source', { url: 'https://127.0.0.1/private' }), env)).status, 400);
 });
+test('bare mount redirects authenticated GET and HEAD to the asset base, preserving query', async () => {
+  const handle = createHandler({ fetchImpl: () => assert.fail('No network expected') });
+  for (const method of ['GET', 'HEAD']) {
+    const signed = await request('session');
+    const response = await handle(new Request('https://tools.ailab.gc.cuny.edu/bibliography?example=1', { method, headers: signed.headers }), env);
+    assert.equal(response.status, 308);
+    assert.equal(response.headers.get('location'), 'https://tools.ailab.gc.cuny.edu/bibliography/?example=1');
+  }
+  assert.equal((await handle(new Request('https://tools.ailab.gc.cuny.edu/bibliography'), env)).status, 401);
+});
+test('private readiness validates both verifier configurations and actual index asset availability', async () => {
+  const handle = createHandler({ fetchImpl: () => assert.fail('No Gateway calls expected') });
+  const health = () => new Request('https://tools.ailab.gc.cuny.edu/bibliography/health');
+  const assets = { fetch: async request => {
+    assert.equal(new URL(request.url).pathname, '/');
+    return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } });
+  } };
+  for (const configuration of [{}, { ...env, CAIL_IDENTITY_JWKS: 'invalid', ASSETS: assets }, { ...env, CAIL_IDENTITY_ISSUER: 'https://wrong.example', ASSETS: assets }, env, { ...env, ASSETS: { fetch: async () => new Response('missing', { status: 404 }) } }]) {
+    assert.equal((await handle(health(), configuration)).status, 503);
+  }
+  const response = await handle(health(), { ...env, ASSETS: assets, CF_VERSION_METADATA: { id: 'tested-version', tag: 'tested-release' } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: 'ready', version_id: 'tested-version', tag: 'tested-release' });
+});
