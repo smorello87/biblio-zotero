@@ -64,3 +64,50 @@ not prove live Doorway/Gateway integration, personal spend attribution, or model
 quality. Production acceptance requires an ordinary member to sign in, convert
 citations and a scanned page, observe the shared delayed quota, and import the
 download into Zotero. Revocation and missing/invalid identity must fail closed.
+
+## Private receiver release
+
+The web receiver is the `cail-bibliography` Cloudflare Worker in `wrangler.toml`,
+with its built `ASSETS` binding. It needs no Node server or database. Production
+releases use the **Check and private release** GitHub workflow, manually dispatched
+from `main` with its exact current 40-character SHA. The check job runs without
+production credentials. The serialized release rejects a stale SHA before deploy,
+then verifies the latest version serves 100%, its commit/configuration bindings,
+and disabled workers.dev/preview ingress through the Cloudflare API.
+
+Configure the repository's production environment with `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`, and the fleet's pinned `CAIL_IDENTITY_JWKS`. The workflow
+validates the verifier configuration and installs that secret with the Worker
+version; it does not generate keys or create a public route. Production environment
+access and author merge permission are prerequisites, not supplied by this patch.
+The platform version tag/message identify the checked commit; readiness reports
+`CF_VERSION_METADATA` from the deployed runtime.
+
+Before enabling Doorway's public mount, exercise the deployed Worker through a
+private service binding: GET the canonical `/bibliography/health` and require the
+expected version ID and commit tag, ready status, valid verifier configuration, and an
+available HTML index asset. Readiness makes no Gateway/model calls. Also verify
+missing credentials fail closed on `/bibliography/api/session`, and matching signed
+app/Gateway legs can load the session and assets. The authenticated bare mount
+redirects to `/bibliography/`, preserving the query, so relative assets and API
+requests stay under the protected prefix. Do not enable workers.dev or preview
+URLs to run these probes.
+
+The CI control-plane readback does not exercise that private binding, prove
+Admission revocation, or prove a member conversion. Record private runtime probe
+results before Doorway enablement, then record member conversion, shared quota,
+PNG/JPG/scanned-PDF OCR, download/Zotero import, and revoked-identity denial on the
+actual public path. Those acceptance checks remain pending until performed.
+
+The checked-in `.npmrc` uses GitHub Packages. CI supplies only the job token with
+`packages:read`; the package owner must grant this repository read access to
+`cail-client` and `cail-identity`. Fork PRs require an authorized check in the owning
+repository if their token cannot read those packages; no package secret is exposed
+to untrusted PRs.
+
+Run `CAIL_GATEWAY_SOURCE=../installed-current-gateway bun integration/run.mjs`
+for the actual Workerd Bibliography-to-Gateway path. Both signed identity legs and
+Gateway routing/accounting run as shipped. Only external Registry, model discovery,
+and provider responses are synthetic; this does not test live Admission or model
+quality. The fixture requires that installed Gateway checkout, including its owned
+test helpers, and is intentionally separate from the standalone source check.
