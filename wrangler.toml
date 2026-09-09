@@ -1,0 +1,20 @@
+name = "cail-bibliography"
+main = "server/worker.js"
+compatibility_date = "2026-09-07"
+workers_dev = false
+preview_urls = false
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = true
+
+[vars]
+CAIL_IDENTITY_ISSUER = "https://tools.ailab.gc.cuny.edu/cail-sso"
+SCRAPE_HOSTS = "italianamericanimprints.omeka.net"
+# Install CAIL_IDENTITY_JWKS as the exact pinned verifier key set before release.
+# Doorway must be the only ingress, via a service binding with current Admission
+# checks and both cail:bibliography and cail:gateway JWT legs.
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"

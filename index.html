@@ -1,423 +1,56 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bibliography to Zotero Converter</title>
-    <link rel="stylesheet" href="styles.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Convert a bibliography into Zotero records with CUNY AI Lab.">
+<title>Bibliography to Zotero | CUNY AI Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <header>
-        <div class="header-content">
-            <h1>Bibliography to Zotero Converter</h1>
-            <p class="subtitle">Convert bibliographic entries into Zotero-importable formats</p>
-            <div style="margin-top: 15px;">
-                <button id="about-link" class="btn-secondary" style="font-size: 0.9rem; padding: 8px 16px;">
-                    About This Tool
-                </button>
-            </div>
-        </div>
-    </header>
-
-    <div class="container">
-        <div class="main-content">
-            <!-- Step 1: Input Source -->
-            <section class="step-section" id="step-input">
-                <h2>Step 1: Choose Input Source</h2>
-                <div class="input-group">
-                    <div class="radio-group">
-                        <label class="radio-label">
-                            <input type="radio" name="input-source" value="url" checked>
-                            <span class="radio-text">
-                                <strong>URL (Web Scraping)</strong>
-                                <small>Fetch bibliography from Omeka website</small>
-                            </span>
-                        </label>
-                        <label class="radio-label">
-                            <input type="radio" name="input-source" value="file">
-                            <span class="radio-text">
-                                <strong>Local File</strong>
-                                <small>Upload .txt, .docx, or .pdf file</small>
-                            </span>
-                        </label>
-                        <label class="radio-label">
-                            <input type="radio" name="input-source" value="text">
-                            <span class="radio-text">
-                                <strong>Paste Text</strong>
-                                <small>Copy and paste bibliography entries</small>
-                            </span>
-                        </label>
-                    </div>
-                </div>
-
-                <div id="url-input" class="source-input">
-                    <label for="url-field">Source URL:</label>
-                    <input type="text" id="url-field" class="text-input"
-                           placeholder="Enter bibliography URL...">
-
-                    <div class="checkbox-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="use-cors-proxy" checked>
-                            <span>Use CORS proxy (recommended)</span>
-                        </label>
-                        <p class="help-text">
-                            Automatically adds a CORS proxy to bypass browser security restrictions.
-                            Uncheck only if you're using a browser extension or local proxy.
-                            <a href="#" id="cors-learn-more" class="learn-more-link">Learn more about CORS →</a>
-                        </p>
-                    </div>
-                </div>
-
-                <div id="file-input" class="source-input" style="display: none;">
-                    <label for="file-field">Choose File:</label>
-                    <div class="file-upload-wrapper">
-                        <input type="file" id="file-field" accept=".txt,.docx,.pdf">
-                        <label for="file-field" class="file-upload-label">
-                            <span class="file-upload-text">Choose file...</span>
-                        </label>
-                    </div>
-                    <p class="help-text">Supported formats: .txt (plain text), .docx (Word document), .pdf (PDF document)</p>
-
-                    <div class="checkbox-group" id="pdf-ocr-option" style="display: none; margin-top: 15px;">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="use-vision-ocr" checked>
-                            <span>Use Vision AI for PDF text extraction</span>
-                        </label>
-                        <div class="info-box" style="margin-top: 10px;">
-                            <strong>💡 Vision OCR:</strong> When enabled, uses a vision AI model to read PDF pages as images.
-                            This produces much better results for PDFs with encoding issues but costs more API credits.
-                            <br><br>
-                            <strong>Vision Model:</strong>
-                            <select id="vision-model-select" class="select-input" style="margin-top: 5px; width: 100%;">
-                                <option value="qwen/qwen3-vl-235b-a22b-instruct">Qwen 3 VL 235B (Recommended)</option>
-                                <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (Fast & Cheap)</option>
-                                <option value="openai/gpt-4o">GPT-4o (High Quality)</option>
-                                <option value="anthropic/claude-sonnet-4">Claude Sonnet 4 (High Quality)</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="text-input" class="source-input" style="display: none;">
-                    <label for="text-field">Bibliography Text:</label>
-                    <textarea id="text-field" class="text-area" rows="15"
-                              placeholder="Paste your bibliography entries here...&#10;&#10;Separate entries with blank lines (triple newlines recommended).&#10;&#10;Example:&#10;Smith, John. 2020. Book Title. New York: Publisher.&#10;&#10;&#10;Jones, Mary. 2021. Another Book. Boston: Press."></textarea>
-                    <p class="help-text">
-                        <strong>Tip:</strong> Separate entries with blank lines (triple newlines work best, like in the source files).
-                        This matches the format used by Omeka bibliography pages.
-                    </p>
-                </div>
-            </section>
-
-            <!-- Step 2: Output Format -->
-            <section class="step-section" id="step-format">
-                <h2>Step 2: Output Format</h2>
-                <div class="input-group">
-                    <div class="radio-group">
-                        <label class="radio-label">
-                            <input type="radio" name="output-format" value="csljson" checked>
-                            <span class="radio-text">
-                                <strong>CSL-JSON</strong>
-                                <small>Recommended for Zotero (native format)</small>
-                            </span>
-                        </label>
-                        <label class="radio-label">
-                            <input type="radio" name="output-format" value="ris">
-                            <span class="radio-text">
-                                <strong>RIS</strong>
-                                <small>Alternative citation format</small>
-                            </span>
-                        </label>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Step 3: AI Model Configuration -->
-            <section class="step-section" id="step-llm">
-                <h2>Step 3: AI Model Configuration</h2>
-                <p class="section-description">
-                    Configure OpenRouter AI to parse bibliographic entries into structured Zotero-compatible format.
-                </p>
-
-                <div id="llm-config">
-                    <div class="input-group">
-                        <label for="model-select">Model:</label>
-                        <select id="model-select" class="select-input">
-                            <option value="openai/gpt-oss-120b">GPT OSS 120B (Very Cheap - Default)</option>
-                            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
-                            <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5 (Best Quality)</option>
-                            <option value="openai/gpt-4o">GPT-4o</option>
-                            <option value="qwen/qwen3-235b-a22b-2507">Qwen 3 235B</option>
-                            <option value="other">Other (Custom Model)</option>
-                        </select>
-                        <div class="warning-box" style="margin-top: 10px;">
-                            <strong>⚠️ Free Model Data Retention:</strong> Free models (marked with "Free") may retain your input data for training purposes. For sensitive bibliographic data, consider using paid models like Claude 3.5 Sonnet or GPT-4o which have data privacy guarantees.
-                        </div>
-                        <p class="help-text">
-                            Popular models for bibliography parsing. Claude and GPT models work best.
-                            <a href="https://openrouter.ai/models" target="_blank" class="learn-more-link">Browse all models →</a>
-                        </p>
-                    </div>
-
-                    <div id="custom-model-input" class="input-group" style="display: none;">
-                        <label for="custom-model-field">Custom Model Name:</label>
-                        <input type="text" id="custom-model-field" class="text-input"
-                               placeholder="e.g., openai/gpt-4o-mini or anthropic/claude-3-opus">
-                        <p class="help-text">
-                            Enter the OpenRouter model identifier (format: provider/model-name).
-                            Find models at <a href="https://openrouter.ai/models" target="_blank">openrouter.ai/models</a>
-                        </p>
-                    </div>
-
-                    <div class="input-group">
-                        <label for="api-key-field">OpenRouter API Key:</label>
-                        <input type="password" id="api-key-field" class="text-input" placeholder="sk-or-v1-...">
-
-                        <div class="checkbox-group" style="margin-top: 10px;">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="remember-api-key">
-                                <span>Remember API key in browser</span>
-                            </label>
-                        </div>
-
-                        <div class="warning-box" style="margin-top: 10px;">
-                            <strong>⚠️ Security Warning:</strong> Only check "Remember API key" if you're on a personal computer. Do NOT use this option on shared or public computers, as your API key will be stored in the browser's localStorage and could be accessed by others.
-                        </div>
-
-                        <p class="help-text">
-                            Get your API key at <a href="https://openrouter.ai/keys" target="_blank" class="learn-more-link">openrouter.ai/keys</a>.
-                            <button type="button" id="clear-api-key-btn" class="btn-link" style="display: none;">Clear saved API key</button>
-                        </p>
-                    </div>
-
-                    <div class="input-group">
-                        <label for="batch-size-field">Batch Size:</label>
-                        <input type="number" id="batch-size-field" class="text-input" value="25" min="1" max="100">
-                        <p class="help-text">Number of entries to process per API call (default: 25)</p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Step 4: Output Options -->
-            <section class="step-section" id="step-options">
-                <h2>Step 4: Output Options</h2>
-
-                <div class="checkbox-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="test-mode">
-                        <span>Test Mode (Process only 10 entries)</span>
-                    </label>
-                    <div class="info-box" style="margin-top: 10px;">
-                        <strong>💡 What is Test Mode?</strong><br>
-                        When enabled, only the first 10 bibliography entries will be processed. This is useful for:
-                        <ul style="margin: 8px 0; padding-left: 20px;">
-                            <li>Quick testing without using many API credits</li>
-                            <li>Verifying the output format before full processing</li>
-                            <li>Checking if your API key and model work correctly</li>
-                        </ul>
-                        Uncheck to process all entries (recommended after testing).
-                    </div>
-                </div>
-
-                <div class="checkbox-group" style="margin-top: 15px;">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="enrich-isbn">
-                        <span>Enrich books with ISBN/OCLC lookup</span>
-                    </label>
-                    <div class="info-box" style="margin-top: 10px;">
-                        <strong>💡 ISBN Enrichment:</strong><br>
-                        When enabled, searches Open Library and Google Books to find ISBNs for book entries.
-                        For books published before 1970 (pre-ISBN era), searches for OCLC or Library of Congress numbers instead.
-                        <ul style="margin: 8px 0; padding-left: 20px;">
-                            <li>Only affects items with type "book"</li>
-                            <li>Adds ISBN, OCLC, LCCN, and page count when found</li>
-                            <li>200ms delay between lookups to respect API limits</li>
-                        </ul>
-                        Note: This adds processing time (~1 second per book).
-                    </div>
-                </div>
-
-                <div class="input-group" style="margin-top: 20px;">
-                    <label for="output-filename-field">Output Filename:</label>
-                    <input type="text" id="output-filename-field" class="text-input" value="zotero_bibliography.json">
-                    <p class="help-text">The filename for the downloaded output file</p>
-                </div>
-            </section>
-
-            <!-- Process Button -->
-            <section class="action-section">
-                <button id="process-btn" class="btn-primary">Process Bibliography</button>
-            </section>
-
-            <!-- Progress Display -->
-            <section id="progress-section" class="step-section" style="display: none;">
-                <h2>Processing...</h2>
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
-                    </div>
-                    <p class="progress-text" id="progress-text">Initializing...</p>
-                </div>
-                <div id="log-container" class="log-container"></div>
-            </section>
-
-            <!-- Results Display -->
-            <section id="results-section" class="step-section" style="display: none;">
-                <h2>Results</h2>
-                <div class="results-summary" id="results-summary"></div>
-                <div class="results-actions">
-                    <button id="download-btn" class="btn-primary">Download Output</button>
-                    <button id="download-failed-btn" class="btn-secondary" style="display: none;">Download Failed Entries</button>
-                </div>
-                <div id="preview-container" class="preview-container" style="display: none;">
-                    <h3>Preview (First 5 Entries)</h3>
-                    <pre id="preview-content"></pre>
-                </div>
-            </section>
-
-            <!-- CORS Modal Overlay -->
-            <div id="cors-modal" class="modal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2>Understanding CORS</h2>
-                        <span class="modal-close">&times;</span>
-                    </div>
-                    <div class="modal-body">
-                        <p>
-                            <strong>CORS (Cross-Origin Resource Sharing)</strong> is a browser security feature that prevents
-                            websites from accessing content on other domains. This is why direct web scraping can be blocked.
-                        </p>
-
-                        <h3>Solution 1: CORS Proxy (Default, Recommended)</h3>
-                        <p>
-                            This app automatically uses <code>corsproxy.io</code> to bypass CORS restrictions.
-                            The proxy acts as an intermediary, fetching the page on your behalf.
-                        </p>
-                        <div class="info-box">
-                            <strong>How it works:</strong><br>
-                            Your URL: <code>https://example.com/page</code><br>
-                            Becomes: <code>https://corsproxy.io/?https://example.com/page</code>
-                        </div>
-                        <p class="help-text">
-                            <strong>Other proxy options:</strong><br>
-                            • <code>https://api.allorigins.win/raw?url=</code><br>
-                            • <code>https://cors-anywhere.herokuapp.com/</code> (may require temporary access)
-                        </p>
-
-                        <h3>Solution 2: Browser Extension</h3>
-                        <p>Install a CORS-disabling extension to allow direct access:</p>
-                        <ul>
-                            <li><strong>Chrome/Edge:</strong> "Allow CORS: Access-Control-Allow-Origin"</li>
-                            <li><strong>Firefox:</strong> "CORS Everywhere"</li>
-                        </ul>
-                        <div class="warning-box">
-                            <strong>⚠️ Security Warning:</strong> Remember to disable the extension after use,
-                            as it reduces browser security protections.
-                        </div>
-                        <p class="help-text">If using an extension, uncheck "Use CORS proxy" above.</p>
-
-                        <h3>Solution 3: Manual Download & Upload</h3>
-                        <p>If automated scraping doesn't work:</p>
-                        <ol>
-                            <li>Visit the webpage in your browser</li>
-                            <li>Save the page (Ctrl+S / Cmd+S) or copy the bibliography text</li>
-                            <li>Create a .txt file with the content</li>
-                            <li>Use the "Local File" or "Paste Text" input option</li>
-                        </ol>
-
-                        <h3>Solution 4: Local Proxy Server (Advanced)</h3>
-                        <p>Run your own CORS proxy locally:</p>
-                        <div class="code-example">
-                            <code># Install cors-anywhere<br>
-npm install -g cors-anywhere<br>
-<br>
-# Run proxy on port 8080<br>
-cors-anywhere<br>
-<br>
-# Update proxy URL in the app's JavaScript</code>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- About Modal Overlay -->
-            <div id="about-modal" class="modal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2>About This Tool</h2>
-                        <span class="modal-close" id="about-modal-close">&times;</span>
-                    </div>
-                    <div class="modal-body">
-                        <p>
-                            This web application converts bibliographic entries from URLs, local files, or pasted text
-                            into Zotero-importable formats (CSL-JSON or RIS). It uses AI to intelligently parse and structure
-                            bibliographic data for seamless import into reference managers.
-                        </p>
-
-                        <h3>Features</h3>
-                        <ul>
-                            <li><strong>Multiple Input Methods:</strong> Web scraping with automatic CORS proxy, file upload (.txt/.docx/.pdf), or direct text paste</li>
-                            <li><strong>AI-Powered Parsing:</strong> Uses OpenRouter API to access multiple AI models (Claude, GPT, Gemini, etc.)</li>
-                            <li><strong>Smart Processing:</strong> Automatic entry splitting, author ditto mark expansion, and format detection</li>
-                            <li><strong>Flexible Output:</strong> CSL-JSON (recommended) or RIS format for Zotero import</li>
-                            <li><strong>Batch Processing:</strong> Handles large bibliographies with configurable batch sizes and retry logic</li>
-                            <li><strong>Error Handling:</strong> Failed entries are tracked and can be downloaded for manual review</li>
-                            <li><strong>Convenience Features:</strong> API key storage, test mode (10 entries), progress tracking</li>
-                        </ul>
-
-                        <h3>Getting Started</h3>
-                        <ol>
-                            <li>Get an API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a></li>
-                            <li>Choose your input source (URL, file, or paste text)</li>
-                            <li>Select an AI model (Claude Sonnet 4.5 or GPT-4o recommended)</li>
-                            <li>Enter your API key (optionally save it for future use)</li>
-                            <li>Enable Test Mode for initial testing (processes 10 entries)</li>
-                            <li>Click "Process Bibliography" and wait for results</li>
-                            <li>Download your CSL-JSON or RIS file and import into Zotero</li>
-                        </ol>
-
-                        <h3>Tips</h3>
-                        <ul>
-                            <li>Use <strong>Test Mode</strong> first to verify everything works before processing large bibliographies</li>
-                            <li><strong>GPT OSS 120B</strong> (default) is very cheap - other models available if you prefer different options</li>
-                            <li><strong>Batch size</strong> of 25 is optimal for most models (lower if you get timeouts)</li>
-                            <li>CORS proxy is enabled by default - uncheck only if using a browser extension</li>
-                            <li>Save your API key only on personal computers, never on shared devices</li>
-                        </ul>
-
-                        <h3>Project Info</h3>
-                        <p>
-                            This is a web version of the <code>biblio-zotero</code> Python script.
-                            Built with vanilla JavaScript, no backend required - runs entirely in your browser.
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <footer>
-        <div class="footer-content">
-            <p>
-                &copy; 2024 Bibliography to Zotero Converter | GNU GPL v3 License
-                <br>
-                Developed by <a href="https://www.stefanomorello.com" target="_blank" class="footer-link">Stefano Morello</a>
-                | <a href="https://github.com/smorello87/biblio-zotero" target="_blank" class="footer-link">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;">
-                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
-                    View on GitHub
-                </a>
-            </p>
-        </div>
-    </footer>
-
-    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>
-        // Set the worker source for PDF.js
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    </script>
-    <script src="app.js"></script>
-</body>
-</html>
+<a class="skip-link" href="#main">Skip to bibliography converter</a>
+<header class="site-header"><div class="header-inner">
+<a class="brand" href="https://ailab.gc.cuny.edu/" aria-label="CUNY AI Lab home"><img src="assets/cuny-ai-lab-logo.png" alt="CUNY AI Lab" width="220" height="66"></a>
+<nav aria-label="CUNY AI Lab"><a href="https://ailab.gc.cuny.edu/tools/">All tools</a><a href="https://tools.ailab.gc.cuny.edu/welcome">My account <span aria-hidden="true">↗</span></a></nav>
+</div></header>
+<main id="main" class="wrap">
+<div class="hero"><div><p class="breadcrumb">Research tools <span aria-hidden="true">/</span> Bibliographies</p><h1>Bibliography to Zotero</h1><p class="subtitle">Bring your reading list into your research library.</p></div><button class="text-button" id="about-link">How it works</button></div>
+<ol class="steps" aria-label="Conversion progress"><li aria-current="step"><span>1</span> Add bibliography</li><li><span>2</span> Review entries</li><li><span>3</span> Convert</li><li><span>4</span> Download</li></ol>
+<div class="workspace"><div class="work-column">
+<div id="error-banner" class="notice error" role="alert" hidden></div>
+<section id="step-1" class="panel" aria-labelledby="input-title">
+<div class="section-heading"><div><h2 id="input-title" tabindex="-1">Add your bibliography</h2><p>Start with text, a document, or an image.</p></div></div>
+<fieldset class="source-choices"><legend class="sr-only">Input source</legend><label><input type="radio" name="input-source" value="text" checked><span>Paste text</span></label><label><input type="radio" name="input-source" value="file"><span>Upload a file</span></label><label><input type="radio" name="input-source" value="url"><span>From a website</span></label></fieldset>
+<div id="text-input" class="source-input"><div class="label-row"><label for="text-field">Bibliography text</label><button id="example-btn" class="text-button">Try an example</button></div>
+<textarea id="text-field" rows="10" placeholder="Paste your citations here.&#10;&#10;Smith, John. 2020. A Book Title. New York: Publisher.&#10;&#10;Jones, Mary. 2021. Another Book. Boston: Press." aria-describedby="text-help"></textarea>
+<p class="help" id="text-help">Separate citations with blank lines. You can check and edit the entries before conversion.</p></div>
+<div id="file-input" class="source-input" hidden>
+<label class="upload-zone" for="file-field"><svg viewBox="0 0 32 32" width="36" height="36" aria-hidden="true"><path d="M8 2h11l6 6v22H8zM19 2v7h6M12 17h9M12 22h9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><strong>Choose a bibliography file or image</strong><span>TXT, DOCX, PDF, PNG, or JPG · up to 5 MB</span><input id="file-field" type="file" accept=".txt,.docx,.pdf,.png,.jpg,.jpeg"></label>
+<p id="file-name" class="help" aria-live="polite"></p>
+<div id="pdf-options" hidden><label class="check"><input id="use-vision-ocr" type="checkbox">Read with Vision OCR</label><p id="vision-help" class="help">OCR uses your shared CAIL quota. Leave it off for PDFs with selectable text.</p>
+<label for="vision-model-select">Vision model</label><select id="vision-model-select"><option value="qwen/qwen3-vl-235b-a22b-instruct">Qwen 3 VL 235B · best for scans</option><option value="@cf/google/gemma-4-26b-a4b-it">Gemma 4 26B · CAIL Workers AI</option></select>
+<div id="page-range" class="field-pair"><div><label for="page-from">First page</label><input id="page-from" type="number" min="1" value="1"></div><div><label for="page-to">Last page (optional)</label><input id="page-to" type="number" min="1" placeholder="Last page"></div></div><p id="page-help" class="help">Page numbers refer to the PDF. Choose a small range to try OCR first.</p></div></div>
+<div id="url-input" class="source-input" hidden><label for="url-field">Bibliography URL</label><input id="url-field" type="url" value="https://italianamericanimprints.omeka.net/actual-bibliography"><p class="help">Import from an enabled bibliography website. For other websites, copy and paste the bibliography.</p></div>
+<div class="panel-actions"><p id="source-status" role="status">Your source stays in this tab until you use AI or a website import.</p><button id="cancel-extract" class="button secondary" hidden>Stop extraction</button><button id="review-btn" class="button primary">Review entries <span aria-hidden="true">→</span></button></div>
+</section>
+<section id="step-2" class="panel" aria-labelledby="review-title" hidden><div class="section-heading"><div><h2 id="review-title" tabindex="-1">Check your entries</h2><p>Each blank line starts a new record. Edit, split, or combine citations here.</p></div><span id="entry-count" class="count" role="status"></span></div>
+<label for="review-text">Entries to convert</label><textarea id="review-text" rows="15"></textarea><p class="help">Keep uncertain dates and incomplete citations in the source so you can check them afterward.</p><div class="panel-actions"><button id="back-btn" class="button secondary">Back to source</button><button id="convert-btn" class="button primary">Convert bibliography</button></div></section>
+<section id="step-3" class="panel" aria-labelledby="progress-title" hidden><h2 id="progress-title" tabindex="-1">Converting your bibliography</h2><p id="progress-text" role="status">Preparing entries…</p><progress id="progress" max="100" value="0" aria-label="Entries converted"></progress><p class="help">You can stop at any time. Completed records remain available in this tab.</p><div class="panel-actions"><span id="batch-status"></span><button id="cancel-btn" class="button secondary">Stop conversion</button></div></section>
+<section id="step-4" class="panel" aria-labelledby="results-title" hidden><div class="section-heading"><div><h2 id="results-title" tabindex="-1">Your bibliography</h2><p id="results-summary" role="status"></p></div><button id="new-btn" class="text-button">Start another</button></div>
+<div id="incomplete-notice" class="notice" hidden><p>Some entries still need attention. Downloads contain only valid records.</p><button id="retry-btn" class="text-button">Retry unresolved entries</button></div>
+<div class="download-options"><div><label for="output-format">File format</label><select id="output-format"><option value="csljson">CSL-JSON — recommended for Zotero</option><option value="ris">RIS</option></select></div><div><label for="output-filename">File name</label><input id="output-filename" value="bibliography"></div></div>
+<div class="download-actions"><button id="download-btn" class="button primary">Download bibliography</button><button id="failed-btn" class="button secondary" hidden>Download unresolved</button><button id="provenance-btn" class="text-button">Download review record</button></div><p class="help">In Zotero, choose File → Import and select your downloaded file.</p>
+<div class="records-heading"><h3>Review records</h3><span>Check the original against the result.</span></div><div id="records"></div><div class="pagination" id="pagination" hidden><button class="button secondary" id="previous-page">Previous</button><span id="page-label" role="status"></span><button class="button secondary" id="next-page">Next</button></div></section>
+</div>
+<aside class="sidebar" aria-label="Account and conversion settings">
+<section class="quota-panel"><div class="aside-heading"><h2>Your CAIL usage</h2><button class="icon-button" id="refresh-quota" aria-label="Refresh usage estimate">↻</button></div><p id="session-status" class="session-status" role="status">Checking your CUNY session…</p><div id="quota-content"><p class="help">Loading your shared usage estimate…</p></div><a class="account-link" href="https://tools.ailab.gc.cuny.edu/welcome">Manage your CUNY AI Lab account</a></section>
+<section class="settings-panel"><h2>Conversion settings</h2><label for="model-select">AI model</label><select id="model-select"><option value="@cf/openai/gpt-oss-120b">GPT OSS 120B · CAIL default</option><option value="@cf/google/gemma-4-26b-a4b-it">Gemma 4 26B · CAIL Workers AI</option><option value="qwen/qwen3-vl-235b-a22b-instruct">Qwen 3 VL 235B · best for scans</option><option value="other">Other Gateway model ID</option></select>
+<div id="custom-model-input" hidden><label for="custom-model-field">Model ID</label><input id="custom-model-field" list="gateway-models" placeholder="@cf/openai/gpt-oss-120b"><datalist id="gateway-models"></datalist><p class="help">Use the exact model ID. Available Gateway models appear as suggestions.</p></div><p class="help">Conversion and OCR use the same allowance as your other CAIL tools.</p>
+<details class="advanced"><summary>More options</summary><label for="batch-size-field">Entries per request</label><input id="batch-size-field" type="number" min="1" max="100" value="25"><label class="check"><input id="test-mode" type="checkbox">Convert only the first 10 entries</label><p class="help">For OCR, choose a page range separately before extraction.</p><label class="check"><input id="enrich-isbn" type="checkbox">Find ISBN and library metadata</label><p class="help">Sends title and author searches to Open Library and, if needed, Google Books. Suggested metadata is shown for review.</p></details></section>
+<section class="sidebar-note"><h3>From citation to collection</h3><p>Import a reading list, recover an old bibliography, or prepare references for your next project.</p><p>Review AI-generated records before adding them to your library.</p></section>
+</aside></div></main>
+<footer><div class="footer-inner"><span>© 2026 CUNY AI Lab</span><div><a href="https://ailab.gc.cuny.edu/">About the Lab</a><a href="https://www.stefanomorello.com" target="_blank" rel="noreferrer">Developed by Stefano Morello</a><a href="https://github.com/smorello87/biblio-zotero" target="_blank" rel="noreferrer">View on GitHub</a><a href="LICENSE">GNU GPL v3</a></div></div></footer>
+<dialog id="about-dialog" aria-labelledby="about-title"><div class="dialog-heading"><h2 id="about-title">From bibliography to Zotero</h2><button id="close-about" class="icon-button" aria-label="Close help">×</button></div><p>Add text, a TXT/DOCX/PDF document, a PNG/JPG image, or a bibliography URL. Check where each citation begins, then convert using your CUNY AI Lab account.</p><p>Conversion and Vision OCR use your shared CAIL allocation. Usage estimates can lag behind a completed request. Check the original citation against each result before importing into Zotero.</p><p>Files and results stay in this tab. Text sent for conversion, page images sent for OCR, and optional catalog lookups leave your browser for processing. Download your results before closing or reloading the tab.</p></dialog>
+<script type="module" src="app.js"></script>
+</body></html>
