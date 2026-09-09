@@ -99,11 +99,14 @@ results before Doorway enablement, then record member conversion, shared quota,
 PNG/JPG/scanned-PDF OCR, download/Zotero import, and revoked-identity denial on the
 actual public path. Those acceptance checks remain pending until performed.
 
-The checked-in `.npmrc` uses GitHub Packages. CI supplies only the job token with
-`packages:read`; the package owner must grant this repository read access to
-`cail-client` and `cail-identity`. Fork PRs require an authorized check in the owning
-repository if their token cannot read those packages; no package secret is exposed
-to untrusted PRs.
+The checked-in `.npmrc` uses GitHub Packages. This repository belongs to
+`smorello87`, outside the package-owning CUNY-AI-Lab organization, and cannot be
+selected in the packages' Manage Actions access picker. Store a dedicated classic
+token with `read:packages` from an authorized CAIL member as the repository Actions
+secret `CAIL_PACKAGES_READ_TOKEN`. CI supplies it only to dependency installation;
+the GitHub job token remains in use for repository operations. Fork PRs do not
+receive this secret and require an authorized check in the owning repository.
+Never place the token in source, logs, or comments.
 
 Run `CAIL_GATEWAY_SOURCE=../installed-current-gateway bun integration/run.mjs`
 for the actual Workerd Bibliography-to-Gateway path. Both signed identity legs and

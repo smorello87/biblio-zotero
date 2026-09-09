@@ -12,8 +12,6 @@ on:
 permissions:
   contents: read
   packages: read
-env:
-  NODE_AUTH_TOKEN: ${{ github.token }}
 jobs:
   check:
     runs-on: ubuntu-24.04
@@ -25,6 +23,8 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CAIL_PACKAGES_READ_TOKEN }}
       - run: bun run check
       - run: bunx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/bibliography-worker"
   release:
@@ -50,6 +50,8 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CAIL_PACKAGES_READ_TOKEN }}
       - run: bun run build
       - name: Deploy checked current main privately and read back configuration
         env:
