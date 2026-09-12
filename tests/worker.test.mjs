@@ -12,7 +12,7 @@ async function request(path, body, options = {}) {
   const headers = { 'x-cail-identity-jwt': app, 'x-cail-gateway-identity-jwt': gateway, origin: options.origin || 'https://tools.ailab.gc.cuny.edu', 'content-type': 'application/json', ...options.headers };
   return new Request(`https://tools.ailab.gc.cuny.edu/bibliography/api/${path}`, { method: body ? 'POST' : 'GET', headers, ...(body ? { body: JSON.stringify(body) } : {}) });
 }
-const batch = { model: '@cf/openai/gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] };
+const batch = { model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] };
 test('invalid verifier configuration is 503; missing, wrong or mismatched identity is 401', async () => {
   const handle = createHandler({ fetchImpl: () => assert.fail('Must not contact Gateway') });
   assert.equal((await handle(await request('quota'), {})).status, 503);
@@ -25,7 +25,7 @@ test('both parsing and OCR use the member Gateway leg and strip ambient credenti
     calls.push({ url: String(url), init });
     return Response.json({ choices: [{ message: { content: '{"items":[]}' } }] });
   } });
-  for (const [path, body] of [['parse', batch], ['ocr', { model: 'google/gemini-2.5-flash', image: 'data:image/png;base64,aGVsbG8=' }]]) {
+  for (const [path, body] of [['parse', batch], ['ocr', { model: 'qwen3-vl-235b-a22b-instruct', image: 'data:image/png;base64,aGVsbG8=' }]]) {
     const req = await request(path, body, { headers: { authorization: 'Bearer do-not-forward', cookie: 'do-not-forward', 'x-cail-metadata': '{"user_id":"forged"}' } });
     const expected = req.headers.get('x-cail-gateway-identity-jwt');
     assert.equal((await handle(req, env)).status, 200);
@@ -40,6 +40,32 @@ test('both parsing and OCR use the member Gateway leg and strip ambient credenti
     assert.match(call.init.headers.get('x-cail-request-id'), /^[0-9a-f-]{36}$/);
   }
   assert.equal(calls.length, 2);
+});
+test('all curated model options reach Gateway unchanged; legacy prefixes are rejected', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const handle = createHandler({ fetchImpl: async (url, init) => {
+    const body = JSON.parse(init.body);
+    assert.ok(['gpt-oss-120b', 'gemma-4-26b-a4b-it', 'qwen3-vl-235b-a22b-instruct'].includes(body.model));
+    return Response.json({ choices: [{ message: { content: '{"items":[]}' } }] });
+  } });
+  for (const [selector, path] of [['model-select', 'parse'], ['vision-model-select', 'ocr']]) {
+    const options = html.match(new RegExp(`<select id="${selector}">([\\s\\S]*?)</select>`))[1];
+    const models = [...options.matchAll(/<option value="([^"]+)"/g)].map(match => match[1]).filter(model => model !== 'other');
+    assert.equal(models.length, path === 'parse' ? 3 : 2);
+    for (const model of models) {
+      const body = path === 'parse' ? { ...batch, model } : { model, image: 'data:image/png;base64,aGVsbG8=' };
+      assert.equal((await handle(await request(path, body), env)).status, 200);
+    }
+  }
+  const reject = createHandler({ fetchImpl: () => assert.fail('Invalid IDs must not reach Gateway') });
+  for (const model of ['', '@cf/openai/gpt-oss-120b', 'openai/gpt-oss-120b', 'auto/gpt-oss-120b', 'qwen/qwen3-vl-235b-a22b-instruct', 'gpt oss', 'x'.repeat(201)]) {
+    for (const path of ['parse', 'ocr']) {
+      const response = await reject(await request(path, { ...batch, model, image: 'data:image/png;base64,aGVsbG8=' }), env);
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).error.code, 'invalid_model');
+    }
+  }
 });
 test('quota is the shared delayed estimate and never preflights inference', async () => {
   const paths = [];

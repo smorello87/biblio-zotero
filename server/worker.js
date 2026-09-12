@@ -36,7 +36,7 @@ async function bodyJSON(request) {
 }
 
 function validateModel(model) {
-  if (typeof model !== 'string' || model.length > 200 || !/^(?:@cf\/)?[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.:/-]+$/.test(model)) throw new AppError('invalid_model', 'Choose a model or enter its provider-native ID.');
+  if (typeof model !== 'string' || model.length > 200 || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/.test(model)) throw new AppError('invalid_model', 'Choose a model or enter its exact prefix-free Gateway ID.');
   return model;
 }
 

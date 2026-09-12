@@ -31,17 +31,17 @@ The Doorway owner must register the matching protected route and Gateway leg
 before enabling production access. No production route or service change is
 implied by this repository's local build.
 
-The curated model choices are provider-native Gateway IDs: `@cf/openai/gpt-oss-120b`
-for general bibliography parsing, `@cf/google/gemma-4-26b-a4b-it` for a CAIL
-Workers AI option, and `qwen/qwen3-vl-235b-a22b-instruct` for difficult scanned
-pages. The custom model field accepts another provider-native ID without aliasing
-or silent substitution.
+The curated model choices are prefix-free Gateway IDs: `gpt-oss-120b`,
+`gemma-4-26b-a4b-it`, and `qwen3-vl-235b-a22b-instruct`. All three were verified
+in the public Gateway catalog on September 12, 2026. The custom field accepts
+exact catalog IDs without aliasing or substitution. Gateway owns provider routing;
+provider-native and `auto/` IDs are no longer accepted (Gateway PR #144).
 
 ## Gateway handoff
 
 The application needs one Gateway-side acceptance item before production: verify
-that `response_format: {"type":"json_object"}` survives the Gateway for both
-`openai/gpt-oss-120b` and `@cf/openai/gpt-oss-120b`, with the requested model ID,
+that `response_format: {"type":"json_object"}` survives the Gateway for
+`gpt-oss-120b`, with the requested model ID,
 the `bibliography` app attribution, and a safe error for unsupported or
 truncated output. The complete issue body is retained here because opening the
 GitHub issue was blocked by the current environment usage-limit approval gate.
@@ -108,9 +108,10 @@ the GitHub job token remains in use for repository operations. Fork PRs do not
 receive this secret and require an authorized check in the owning repository.
 Never place the token in source, logs, or comments.
 
-Run `CAIL_GATEWAY_SOURCE=../installed-current-gateway bun integration/run.mjs`
-for the actual Workerd Bibliography-to-Gateway path. Both signed identity legs and
-Gateway routing/accounting run as shipped. Only external Registry, model discovery,
-and provider responses are synthetic; this does not test live Admission or model
-quality. The fixture requires that installed Gateway checkout, including its owned
-test helpers, and is intentionally separate from the standalone source check.
+The optional `integration/run.mjs` harness preserves the September 8 native-ID
+Gateway fixture. It is historical coverage, not a current Gateway acceptance test:
+canonical routing now requires the Gateway's newer identity graph fixtures. Do not
+use that harness to claim current deployment readiness. The standalone suite tests
+the current selectors, canonical-ID forwarding for parsing/OCR, legacy-ID rejection,
+identity, and quota behavior against controlled Gateway responses. Live model and
+deployed Gateway acceptance remain with the infrastructure owner.
