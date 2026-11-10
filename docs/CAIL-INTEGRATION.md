@@ -99,14 +99,9 @@ results before Doorway enablement, then record member conversion, shared quota,
 PNG/JPG/scanned-PDF OCR, download/Zotero import, and revoked-identity denial on the
 actual public path. Those acceptance checks remain pending until performed.
 
-The checked-in `.npmrc` uses GitHub Packages. This repository belongs to
-`smorello87`, outside the package-owning CUNY-AI-Lab organization, and cannot be
-selected in the packages' Manage Actions access picker. Store a dedicated classic
-token with `read:packages` from an authorized CAIL member as the repository Actions
-secret `CAIL_PACKAGES_READ_TOKEN`. CI supplies it only to dependency installation;
-the GitHub job token remains in use for repository operations. Fork PRs do not
-receive this secret and require an authorized check in the owning repository.
-Never place the token in source, logs, or comments.
+The `@cuny-ai-lab/*` packages are public on npm. The checked-in `.npmrc` points
+that scope at `https://registry.npmjs.org`, so installs and CI need no token or
+package-read secret.
 
 The optional `integration/run.mjs` harness preserves the September 8 native-ID
 Gateway fixture. It is historical coverage, not a current Gateway acceptance test:

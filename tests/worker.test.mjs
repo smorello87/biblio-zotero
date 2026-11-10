@@ -116,3 +116,10 @@ test('private readiness validates both verifier configurations and actual index 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: 'ready', version_id: 'tested-version', tag: 'tested-release' });
 });
+const catalogRow = (id, overrides = {}) => ({ id, object: 'model', recommended: false, tier: 'advanced', order: 10, status: 'active', modality: 'text', provider: 'workers-ai', upstream_model: id, pricing_known: 'catalog', streaming: true, sunset: null, capabilities: ['text-generation'], context_length: 8192, registry_url: null, ...overrides });
+test('catalog with a bedrock-runtime row is served (cail-client 6.3.0 parser)', async () => {
+  const handle = createHandler({ fetchImpl: async () => Response.json({ object: 'list', data: [catalogRow('gpt-oss-120b'), catalogRow('claude-on-bedrock', { provider: 'bedrock-runtime' })] }) });
+  const response = await handle(await request('catalog'), env);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).data.map(row => row.id), ['gpt-oss-120b', 'claude-on-bedrock']);
+});

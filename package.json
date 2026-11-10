@@ -12,8 +12,8 @@
     "worker:dev": "npm run build && wrangler dev"
   },
   "dependencies": {
-    "@cuny-ai-lab/cail-client": "6.2.2",
-    "@cuny-ai-lab/cail-identity": "5.2.5",
+    "@cuny-ai-lab/cail-client": "6.3.0",
+    "@cuny-ai-lab/cail-identity": "5.2.6",
     "mammoth": "1.11.0",
     "pdfjs-dist": "4.10.38"
   },
