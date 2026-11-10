@@ -35,3 +35,9 @@ test('the Worker invalid_credential code and other errors only show an error', a
     assert.deepEqual(assigned, []);
   }
 });
+test('retry advice is exposed from x-should-retry and retry-after', async () => {
+  const { api } = setup(() => failure(503, 'service_unavailable', { 'x-should-retry': 'true', 'retry-after': '12' }));
+  await assert.rejects(api('parse', {}), error => error.shouldRetry === true && error.retryAfter === 12);
+  const none = setup(() => failure(429, 'quota_exceeded', { 'x-should-retry': 'false' }));
+  await assert.rejects(none.api('parse', {}), error => error.shouldRetry === false && error.retryAfter === undefined);
+});

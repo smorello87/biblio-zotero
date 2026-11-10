@@ -170,7 +170,8 @@ export function createHandler({ fetchImpl = fetch } = {}) {
       const code = known ? error.code : status === 504 ? 'request_timeout' : status === 499 ? 'request_cancelled' : 'service_unavailable';
       const message = known ? error.message : status === 504 ? 'The request timed out. Completed entries are preserved.' : status === 499 ? 'The request was cancelled.' : 'The service is temporarily unavailable. Completed entries are preserved.';
       const retry = error instanceof CailError ? error.extras.should_retry : status === 503;
-      return json({ error: { code, message, request_id: requestId } }, status, { 'x-should-retry': retry === true ? 'true' : 'false', 'x-cail-request-id': requestId });
+      const retryAfter = error instanceof CailError ? error.extras.retry_after_seconds : undefined;
+      return json({ error: { code, message, request_id: requestId } }, status, { 'x-should-retry': retry === true ? 'true' : 'false', 'x-cail-request-id': requestId, ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { 'retry-after': String(retryAfter) } : {}) });
     }
   };
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestIdentityIssuer, TEST_SUBJECTS } from '@cuny-ai-lab/cail-identity/testing';
-import { quotaSnapshotBody, quotaExceededResponse } from '@cuny-ai-lab/cail-client/testing';
+import { quotaSnapshotBody, quotaExceededResponse, cailErrorEnvelope, cailErrorResponse } from '@cuny-ai-lab/cail-client/testing';
 import { createHandler } from '../server/worker.js';
 
 const issuer = await createTestIdentityIssuer();
@@ -155,4 +155,17 @@ test('enrich tolerates malformed docs and only links Open Library works', async 
   assert.equal(data.suggestion.url, 'https://openlibrary.org/works/OL123W');
   assert.equal(data.suggestion.fields.ISBN, undefined);
   assert.equal((await (await enrich(() => new Response('not json'))).json()).error.code, 'enrichment_unavailable');
+});
+test('retryable 503 forwards x-should-retry and Retry-After; quota exhaustion is non-retryable', async () => {
+  const unavailable = createHandler({ fetchImpl: async () => cailErrorResponse(503, cailErrorEnvelope({ code: 'service_unavailable', type: 'server_error', cail: { retry_after_seconds: 7 } }), { 'x-should-retry': 'true' }) });
+  const busy = await unavailable(await request('parse', batch), env);
+  assert.equal(busy.status, 503);
+  assert.equal(busy.headers.get('x-should-retry'), 'true');
+  assert.equal(busy.headers.get('retry-after'), '7');
+  const exceeded = createHandler({ fetchImpl: async () => quotaExceededResponse() });
+  const spent = await exceeded(await request('parse', batch), env);
+  assert.equal(spent.status, 429);
+  assert.equal((await spent.json()).error.code, 'quota_exceeded');
+  assert.equal(spent.headers.get('x-should-retry'), 'false');
+  assert.equal(spent.headers.get('retry-after'), '3600');
 });

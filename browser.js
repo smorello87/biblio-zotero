@@ -9,6 +9,7 @@ const text = (tag, value, className) => { const node = document.createElement(ta
 const display = (id, visible) => { $(id).hidden = !visible; };
 function showError(error) {
   $('error-banner').textContent = error.message || 'The operation could not be completed.';
+  if (error.retryAfter) $('error-banner').append(text('p', `You can try again in about ${error.retryAfter < 120 ? `${error.retryAfter} seconds` : `${Math.ceil(error.retryAfter / 60)} minutes`}.`, 'help'));
   if (error.requestId) $('error-banner').append(text('p', `Support reference: ${error.requestId}`, 'help'));
   display('error-banner', true);
 }
@@ -98,7 +99,7 @@ async function prepare() {
 }
 
 async function convert(retry = false) {
-  display('error-banner', false);
+  display('error-banner', false); state.noRetry = false;
   try {
     const batchSize = Number($('batch-size-field').value);
     if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) throw new Error('Entries per request must be between 1 and 100.');
@@ -140,7 +141,7 @@ async function convert(retry = false) {
     }
     $('progress').value = 100;
   } catch (error) {
-    if (!state.controller?.signal.aborted) showError(error);
+    if (!state.controller?.signal.aborted) { state.noRetry = error.shouldRetry === false; showError(error); }
   } finally {
     busy(false); state.controller = null;
     if (state.records.length) { state.page = 0; renderResults(); stage(4); }
@@ -152,7 +153,7 @@ function renderResults() {
   const ready = readyItems().length, unresolved = state.records.length - ready;
   $('results-summary').textContent = `${ready} ready to import · ${unresolved} unresolved · ${state.records.length} total`;
   $('download-btn').disabled = ready === 0;
-  display('incomplete-notice', unresolved > 0); display('failed-btn', unresolved > 0);
+  display('incomplete-notice', unresolved > 0); $('retry-btn').hidden = state.noRetry === true; display('failed-btn', unresolved > 0);
   const records = state.records.slice(state.page * 20, (state.page + 1) * 20);
   $('records').replaceChildren(...records.map(record => {
     const detail = document.createElement('details'); detail.className = 'record';
