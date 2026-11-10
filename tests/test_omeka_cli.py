@@ -62,9 +62,6 @@ class KeyPrompts(unittest.TestCase):
             self.assertEqual(cli.prompt_api_key("openai"), "secret")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class FakeResponse:
     def __init__(self, status=200, body=None, headers=None):
@@ -169,3 +166,7 @@ class CailProvider(unittest.TestCase):
                 os.chdir(cwd)
         self.assertEqual(sent, [("gpt-oss-120b", "secret")])
         self.assertEqual(results[0]["title"], "One")
+
+
+if __name__ == "__main__":
+    unittest.main()
