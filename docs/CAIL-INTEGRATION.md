@@ -1,7 +1,7 @@
 # CAIL bibliography integration
 
 The web tool is moving from browser-held OpenRouter keys to CAIL Doorway and
-Gateway. The Python CLI remains an independent command-line utility.
+Gateway.
 
 ## Implementation and acceptance plan
 

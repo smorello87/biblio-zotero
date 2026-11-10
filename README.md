@@ -1,348 +1,39 @@
-# Omeka Bibliography to Zotero Converter
+# Bibliography to Zotero
 
-A Python utility that converts bibliographic entries from Omeka Classic websites or local files into Zotero-importable formats (CSL-JSON or RIS).
+A CUNY AI Lab web tool that turns a bibliography into records you can import into Zotero. Paste citations, upload a TXT, DOCX, PDF, PNG or JPG file, or import from an enabled bibliography website. Check where each citation begins, then convert. The tool returns CSL-JSON or RIS, shows each record beside its original citation for review, and can suggest ISBN and library metadata from Open Library.
 
-> This README documents the standalone command-line tool, which uses your own OpenAI or OpenRouter key. The hosted web app is a separate Cloudflare Worker that signs in through CUNY AI Lab and holds no key in the browser; it uses prefix-free Gateway model IDs such as `gpt-oss-120b`. See `docs/CAIL-INTEGRATION.md`.
+## Where it runs
 
-## Features
+The tool is served at `https://tools.ailab.gc.cuny.edu/bibliography/` on the CUNY AI Lab tools portal. You sign in through CUNY Login, and conversion and Vision OCR use your shared CUNY AI Lab model allowance. No API key is held in the browser.
 
-- **Multiple Input Sources**:
-  - Web scraping from Omeka Classic websites
-  - Local text files (.txt)
-  - Microsoft Word documents (.docx)
+It is a Cloudflare Worker (`server/worker.js`) with static assets. The Worker has no public address of its own. The portal (CAIL Doorway) handles sign-in and access, then forwards two signed identity assertions over a service binding. The Worker verifies both and calls models through the CAIL Gateway on your behalf. See [`docs/CAIL-INTEGRATION.md`](docs/CAIL-INTEGRATION.md).
 
-- **Intelligent Processing**:
-  - Automatic author ditto mark expansion (e.g., "______" → previous author name)
-  - Smart entry splitting and normalization
-  - Optional LLM-powered structured parsing (OpenAI or OpenRouter)
+Files and results stay in your browser tab. Text sent for conversion, page images sent for OCR and optional catalog lookups leave the browser for processing. Review every record against its source before importing it.
 
-- **Flexible Output**:
-  - CSL-JSON format (native Zotero import)
-  - RIS format (alternative citation format)
+## Develop
 
-- **Robust Error Handling**:
-  - Retry logic with exponential backoff for API calls
-  - Detailed failed entries tracking
-  - Stub records for entries that can't be parsed
+Requires Node.js 22.
 
-## Installation
-
-### Required Dependencies
 ```bash
-pip install requests beautifulsoup4
+npm ci                          # CAIL packages are public on npm; no token needed
+npm run check                   # syntax checks, all tests, then the build into dist/
+npm test                        # tests only
+npm run dev                     # build and serve dist/ at http://127.0.0.1:8000 (page only, no API)
+npm run worker:dev              # build and run the Worker locally with wrangler dev
+npx wrangler deploy --dry-run   # offline bundle check
 ```
 
-### Optional Dependencies
-```bash
-# For Word document support
-pip install python-docx
-```
+The tests stub every upstream and never call a model. `tests/workerd.test.mjs` runs the bundled Worker in real workerd through Miniflare. `integration/run.mjs` is an optional harness against a local copy of the Gateway source (`CAIL_GATEWAY_SOURCE`).
 
-## Quick Start
+Layout:
 
-### Interactive Mode (Recommended)
-```bash
-python omeka_bib_to_zotero.py
-```
+- `index.html`, `styles.css`, `assets/`: the page. `app.js` loads `browser.js` (interface), `api.js` (API client and sign-in restart), `models.js` (model menus from the Gateway catalog), `core.js` (entry splitting, CSL-JSON and RIS) and `readers.js` (file readers, PDF rendering for OCR).
+- `server/worker.js`, `server/prompts.js`: the Worker routes and model prompts.
+- `scripts/`: build, local server and release verification.
+- `docs/`: integration contract and deploy checklist.
 
-The script will guide you through:
-1. Choosing input source (URL or local file)
-2. Selecting output format
-3. Configuring LLM parsing (optional)
+Releases go through the GitHub Actions workflow only, never from a local machine. See [`docs/DEPLOY-CHECKLIST.md`](docs/DEPLOY-CHECKLIST.md).
 
-### Command-Line Usage
+## Licence
 
-#### From URL (Web Scraping)
-```bash
-# Basic conversion (no LLM)
-python omeka_bib_to_zotero.py \
-  --url https://italianamericanimprints.omeka.net/actual-bibliography \
-  --out bibliography.json \
-  --format csljson
-
-# With OpenAI LLM parsing
-OPENAI_API_KEY=sk-... python omeka_bib_to_zotero.py \
-  --url https://italianamericanimprints.omeka.net/actual-bibliography \
-  --use-llm openai \
-  --model gpt-4o-mini \
-  --out bibliography.json
-```
-
-#### From Local File
-```bash
-# From text file
-python omeka_bib_to_zotero.py \
-  --file bibliography.txt \
-  --out output.json
-
-# From Word document with OpenRouter LLM
-OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py \
-  --file bibliography.docx \
-  --use-llm openrouter \
-  --model openrouter/anthropic/claude-3.5-sonnet \
-  --out output.json
-```
-
-#### Generate RIS Format
-```bash
-python omeka_bib_to_zotero.py \
-  --file bibliography.txt \
-  --format ris \
-  --out output.ris
-```
-
-## Input File Format
-
-For local files, entries should be separated by **triple newlines** (two blank lines between entries):
-
-```
-Smith, John. 2020. Book Title. New York: Publisher.
-
-
-Jones, Mary. 2021. Another Book. Boston: MIT Press.
-
-
-Brown, Alice. 2022. Third Book. Chicago: University Press.
-```
-
-This format matches the structure extracted from Omeka websites and ensures proper entry separation.
-
-## Command-Line Options
-
-| Option | Description |
-|--------|-------------|
-| `--url <URL>` | Source URL for web scraping |
-| `--file <PATH>` | Local file path (.txt or .docx) |
-| `--out <PATH>` | Output file path |
-| `--format {csljson,ris}` | Output format (default: csljson) |
-| `--use-llm {openai,openrouter,cail}` (alias `--provider`) | LLM provider for structured parsing |
-| `--model <NAME>` | Model name (e.g., gpt-4o-mini, claude-3.5-sonnet) |
-| `--max <N>` | Limit number of entries (for testing) |
-
-**Note**: `--url` and `--file` are mutually exclusive.
-
-## LLM-Powered Parsing
-
-Without LLM parsing, the script creates minimal records with raw citation text. For high-quality structured fields (authors, year, title, etc.), use LLM parsing:
-
-### OpenAI
-```bash
-export OPENAI_API_KEY=sk-...
-python omeka_bib_to_zotero.py \
-  --use-llm openai \
-  --model gpt-4o-mini \
-  --out output.json
-```
-
-**Recommended models**: `gpt-4o-mini` (cost-effective), `gpt-4o` (higher quality)
-
-### OpenRouter
-```bash
-export OPENROUTER_API_KEY=...
-python omeka_bib_to_zotero.py \
-  --use-llm openrouter \
-  --model openrouter/anthropic/claude-3.5-sonnet \
-  --out output.json
-```
-
-### CUNY AI Lab (CAIL) Gateway
-```bash
-export CAIL_API_KEY=...
-python omeka_bib_to_zotero.py \
-  --provider cail \
-  --model gpt-oss-120b \
-  --out output.json
-```
-
-Calls go to `https://tools.ailab.gc.cuny.edu/v1` and use the same shared allowance as other CAIL tools. Use the Gateway's prefix-free model IDs (`gpt-oss-120b` by default, `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`). Each call is attempted once; it is retried a single time only if the Gateway answers with `x-should-retry: true`, waiting for its `Retry-After`. Requests ask for up to 16000 output tokens and carry a fresh `x-cail-request-id`. On failure the Gateway's error code and message are printed. The key is sent as a bearer token; if `CAIL_API_KEY` is unset in interactive mode you are asked for it without echo.
-
-**Note**: API keys can also be entered interactively when prompted.
-
-## Output Files
-
-The script generates:
-
-- **Main output**: `output.json` or `output.ris` - Ready for Zotero import
-- **Failed entries**: `failed_entries.txt` - Formatted list of entries that couldn't be parsed (if any)
-
-### Failed Entries
-
-When using LLM parsing, some complex entries may fail. These are:
-1. Added to the output file as stub records (with raw text in the title field)
-2. Listed in `failed_entries.txt` for manual review
-
-Example `failed_entries.txt`:
-```
-================================================================================
-FAILED BIBLIOGRAPHY ENTRIES
-================================================================================
-Total failed entries: 3
-These entries could not be parsed by the LLM and were added as stub records.
-Consider re-processing them individually or manually adding them to Zotero.
-================================================================================
-
-1. Complex entry text here...
-
---------------------------------------------------------------------------------
-
-2. Another failed entry...
-
---------------------------------------------------------------------------------
-```
-
-## Performance
-
-**Without LLM**:
-- ~5 seconds total for ~1,000 entries
-- No API costs
-
-**With LLM**:
-- ~60-90 minutes for ~1,000 entries
-- API costs: ~$0.50-$1.00 with gpt-4o-mini
-- Batch processing (25 entries per batch)
-- Automatic retry on timeout/rate limit
-
-## Testing
-
-Test with a limited number of entries:
-```bash
-python omeka_bib_to_zotero.py \
-  --file test.txt \
-  --max 10 \
-  --out test.json
-```
-
-Create a test file:
-```bash
-cat > test.txt << 'EOF'
-Smith, John. 2020. Test Book. New York: Academic Press.
-
-
-Jones, Mary. 2021. Another Book. Boston: MIT Press.
-EOF
-```
-
-## Importing to Zotero
-
-1. Open Zotero
-2. Click **File → Import...**
-3. Select your output file (`.json` or `.ris`)
-4. Review imported entries
-5. Manually fix any stub records (from `failed_entries.txt`)
-
-## Features in Detail
-
-### Author Ditto Mark Expansion
-
-The script automatically expands bibliographic ditto marks that reference the previous author:
-
-**Input**:
-```
-Smith, John. 2020. First Book. New York: Publisher.
-
-
-______. 2021. Second Book. Boston: Press.
-```
-
-**Output**:
-```
-Smith, John. 2020. First Book. New York: Publisher.
-Smith, John. 2021. Second Book. Boston: Press.
-```
-
-Supports multiple ditto mark formats: `______`, `———`, `—`
-
-### Supported Citation Types
-
-The LLM can identify and structure:
-- Books
-- Journal articles
-- Magazine articles
-- Book chapters
-- Theses
-- Reports
-- Manuscripts
-- Pamphlets
-
-### Bilingual Support
-
-Handles both English and Italian bibliographic entries, including:
-- Diacritics preservation
-- Italian publisher formats
-- Mixed-language bibliographies
-
-## Troubleshooting
-
-### Word Document Support
-
-If you get an import error for `.docx` files:
-```bash
-pip install python-docx
-```
-
-### API Timeouts
-
-The script includes retry logic, but if you experience persistent timeouts:
-- Check your internet connection
-- Verify API key is valid
-- Try reducing batch size (requires code modification)
-
-### Incorrect Entry Count
-
-Ensure local files use **triple newlines** (two blank lines) to separate entries. Single or double newlines may cause entries to merge.
-
-### Failed Entries
-
-Check `failed_entries.txt` for entries that couldn't be parsed. Options:
-1. Re-run with `--max <N>` to process fewer entries
-2. Manually add to Zotero after import
-3. Edit the source file and re-run
-
-## Examples
-
-### Example 1: Italian-American Bibliography from Omeka
-```bash
-python omeka_bib_to_zotero.py \
-  --url https://italianamericanimprints.omeka.net/actual-bibliography \
-  --use-llm openai \
-  --model gpt-4o-mini \
-  --out italian_american_biblio.json
-```
-
-### Example 2: Local Bibliography with No LLM
-```bash
-python omeka_bib_to_zotero.py \
-  --file my_bibliography.txt \
-  --out output.json \
-  --format csljson
-```
-
-### Example 3: Word Document to RIS
-```bash
-python omeka_bib_to_zotero.py \
-  --file dissertation_biblio.docx \
-  --format ris \
-  --out dissertation.ris
-```
-
-### Example 4: Test Run
-```bash
-python omeka_bib_to_zotero.py \
-  --url https://italianamericanimprints.omeka.net/actual-bibliography \
-  --max 10 \
-  --out test.json
-```
-
-## License
-
-This is an open-source utility for academic and research purposes.
-
-## Support
-
-For issues, questions, or contributions, please refer to the project repository.
-
-## Acknowledgments
-
-- Designed for the Italian-American Imprints bibliography project
-- Supports Zotero citation management workflows
-- Built with requests, BeautifulSoup4, and optional python-docx
+GNU General Public License v3.0 (see `LICENSE`). Developed by Stefano Morello for the CUNY AI Lab.

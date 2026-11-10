@@ -4,8 +4,7 @@ Guidance for working in this repository. Read `docs/CAIL-INTEGRATION.md` for the
 
 ## What this is
 
-- **Web app**: a Cloudflare Worker (`server/worker.js`) serving a static page and a small API under `/bibliography`. It runs inside CUNY AI Lab's Doorway/Gateway platform. No key is held in the browser.
-- **Python CLI**: `omeka_bib_to_zotero.py` is a separate, independent command-line utility with its own providers (OpenAI, OpenRouter, and the CAIL Gateway via `--provider cail`), prompts and key handling. It shares no code with the web app; changes to one do not imply changes to the other.
+A Cloudflare Worker (`server/worker.js`) serving a static page and a small API under `/bibliography`. It runs inside CUNY AI Lab's Doorway/Gateway platform behind CUNY Login. No key is held in the browser.
 
 Test source: `https://italianamericanimprints.omeka.net/actual-bibliography`.
 
@@ -15,7 +14,7 @@ Test source: `https://italianamericanimprints.omeka.net/actual-bibliography`.
 - `server/worker.js`: API routes (`session`, `quota`, `catalog`, `parse`, `ocr`, `enrich`, `source`, `health`). `server/prompts.js`: model prompts.
 - `scripts/build.mjs`: bundles into gitignored `dist/` (served via the `ASSETS` binding). `wrangler.toml`: Worker config.
 - `docs/DEPLOY-CHECKLIST.md`: secrets, pinned config, probes and the Doorway mount changes.
-- `tests/*.test.mjs`: Node test runner (`workerd.test.mjs` runs the Worker in real workerd via Miniflare). `integration/`: optional workerd-to-Gateway harness that needs external Gateway source.
+- `tests/*.test.mjs`: Node test runner (`workerd.test.mjs` runs the Worker in real workerd via Miniflare; `tests/fixtures/` holds a public catalog snapshot and a Cloudflare API stub). `integration/`: optional workerd-to-Gateway harness that needs external Gateway source.
 
 ## Commands
 
@@ -25,12 +24,11 @@ npm run check                   # syntax checks, all tests, then build
 npm test                        # tests only
 npm run worker:dev              # build + wrangler dev
 npx wrangler deploy --dry-run   # offline bundle check (never deploy locally; releases go through CI)
-python3 -m unittest tests/test_omeka_cli.py   # Python CLI tests (needs requests, beautifulsoup4)
 ```
 
 ## Identity and Gateway flow
 
-Doorway handles CUNY login and Admission, then forwards two signed JWTs to the Worker over a service binding: an app assertion (audience `cail:bibliography`) and a Gateway leg (audience `cail:gateway`, same subject). The Worker verifies both with `@cuny-ai-lab/cail-identity`, rejects mismatches, requires `Origin` on writes, and forwards only the Gateway leg to Gateway through `@cuny-ai-lab/cail-client` (single attempt, no app-key fallback). Gateway owns model routing, accounting and quota; the Worker keeps no spending ledger. A `401` with `authentication_required` or `session_invalid` makes the page restart sign-in by navigating to the tool's launch path.
+Doorway handles CUNY login and Admission, then forwards two signed JWTs to the Worker over a service binding: an app assertion (audience `cail:bibliography`) and a Gateway leg (audience `cail:gateway`, same subject). The Worker verifies both with `@cuny-ai-lab/cail-identity`, rejects mismatches, requires `Origin` on writes, and forwards only the Gateway leg to Gateway through `@cuny-ai-lab/cail-client` (single attempt, no app-key fallback). Gateway owns model routing, accounting and quota; the Worker keeps no spending ledger. Every Worker `401` names `launch: "/launch/bibliography"`. A `401` with `authentication_required` or `session_invalid` makes the page navigate to that launch path (once per page, at most once a minute, and only when sessionStorage can record it); the error banner and session status always show a "Sign in with CUNY" link as well (`api.js`).
 
 ## Models
 

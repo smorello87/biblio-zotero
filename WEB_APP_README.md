@@ -1,4 +1,4 @@
-> Historical: this describes the earlier browser-held-key version of the web app, not the current Cloudflare Worker. See `docs/CAIL-INTEGRATION.md`.
+> Historical: this describes the earlier browser-held-key version of the web app, not the current Cloudflare Worker. See `docs/CAIL-INTEGRATION.md`. The Python script it compares against (`omeka_bib_to_zotero.py`) and `PYTHON_VS_WEB_COMPARISON.md` are no longer part of this repository.
 
 # Bibliography to Zotero Converter - Web Application
 

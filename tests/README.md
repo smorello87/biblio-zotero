@@ -1,29 +1,10 @@
-# Tests and Analysis Scripts
+# Tests
 
-This folder contains test scripts and analysis tools used during development.
+`npm test` runs every `tests/*.test.mjs` file with the Node test runner. Nothing here calls a model, the Gateway or Cloudflare: every upstream is stubbed.
 
-## Files
-
-- **test_scraping.py** - Tests web scraping functionality
-- **test_fixes_on_real_data.py** - Validates fixes against real data
-- **proposed_fixes.py** - Working implementations of bug fixes
-- **detailed_analysis.py** - Detailed analysis of entry processing
-- **investigate_discrepancy.py** - Investigates entry count discrepancies
-- **analyze_entry_starts.py** - Analyzes patterns in entry beginnings
-
-## Running Tests
-
-These are development/analysis scripts, not automated unit tests. To run:
-
-```bash
-python tests/test_scraping.py
-python tests/test_fixes_on_real_data.py
-```
-
-## For Testing the Main Script
-
-Use the main script with `--max` parameter:
-
-```bash
-python omeka_bib_to_zotero.py --max 10 --out test.json
-```
+- `worker.test.mjs`: the Worker handler in Node (identity, Origin checks, model calls, output budgets, catalog cache, enrich, source import, error envelopes).
+- `workerd.test.mjs`: the bundled Worker in real workerd through Miniflare (enrich, abort propagation with and without `enable_request_signal`, `LICENSE.txt`).
+- `api.test.mjs`: the browser API client (lost-session restart and sign-in link, retry advice, timeouts).
+- `models.test.mjs`: catalog-driven model menus, including a snapshot of the public catalog in `fixtures/`.
+- `core.test.mjs`: entry splitting, reconciliation, model-reply parsing and RIS export.
+- `verify-release.test.mjs`: `scripts/verify-release.mjs` against `fixtures/cloudflare-api-stub.mjs`.
