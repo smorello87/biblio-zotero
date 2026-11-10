@@ -115,7 +115,7 @@ This format matches the structure extracted from Omeka websites and ensures prop
 | `--file <PATH>` | Local file path (.txt or .docx) |
 | `--out <PATH>` | Output file path |
 | `--format {csljson,ris}` | Output format (default: csljson) |
-| `--use-llm {openai,openrouter}` | LLM provider for structured parsing |
+| `--use-llm {openai,openrouter,cail}` (alias `--provider`) | LLM provider for structured parsing |
 | `--model <NAME>` | Model name (e.g., gpt-4o-mini, claude-3.5-sonnet) |
 | `--max <N>` | Limit number of entries (for testing) |
 
@@ -144,6 +144,17 @@ python omeka_bib_to_zotero.py \
   --model openrouter/anthropic/claude-3.5-sonnet \
   --out output.json
 ```
+
+### CUNY AI Lab (CAIL) Gateway
+```bash
+export CAIL_API_KEY=...
+python omeka_bib_to_zotero.py \
+  --provider cail \
+  --model gpt-oss-120b \
+  --out output.json
+```
+
+Calls go to `https://tools.ailab.gc.cuny.edu/v1` and use the same shared allowance as other CAIL tools. Use the Gateway's prefix-free model IDs (`gpt-oss-120b` by default, `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`). Each call is attempted once; it is retried a single time only if the Gateway answers with `x-should-retry: true`, waiting for its `Retry-After`. Requests ask for up to 16000 output tokens and carry a fresh `x-cail-request-id`. On failure the Gateway's error code and message are printed. The key is sent as a bearer token; if `CAIL_API_KEY` is unset in interactive mode you are asked for it without echo.
 
 **Note**: API keys can also be entered interactively when prompted.
 

@@ -29,6 +29,12 @@ OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py \
   --use-llm openrouter --model openrouter/anthropic/claude-3.5-sonnet \
   --out zotero_bibliography.json --format csljson
 
+# With LLM parsing via CUNY AI Lab (CAIL) Gateway
+CAIL_API_KEY=... python omeka_bib_to_zotero.py \
+  --file bibliography.txt \
+  --provider cail --model gpt-oss-120b \
+  --out zotero_bibliography.json --format csljson
+
 # Create RIS instead (also usable by Zotero)
 python omeka_bib_to_zotero.py --file bibliography.docx --format ris --out zotero_bibliography.ris
 
@@ -56,6 +62,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -574,6 +581,55 @@ def call_openrouter_chat(model: str, messages: List[Dict[str, str]], api_key: st
                 raise
 
 
+CAIL_BASE_URL = "https://tools.ailab.gc.cuny.edu/v1"
+CAIL_DEFAULT_MODEL = "gpt-oss-120b"
+CAIL_MAX_TOKENS = 16000
+CAIL_MAX_RETRY_WAIT = 120  # seconds; cap on honouring Retry-After
+
+
+def call_cail_chat(model: str, messages: List[Dict[str, str]], api_key: str) -> str:
+    """Call the CAIL Gateway once; retry once only if the Gateway says x-should-retry: true.
+
+    Model IDs are the Gateway's canonical prefix-free IDs (e.g. gpt-oss-120b).
+    """
+    url = f"{CAIL_BASE_URL}/chat/completions"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": CAIL_MAX_TOKENS,
+        "response_format": {"type": "json_object"},
+    }
+    for attempt in range(2):
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "x-cail-request-id": str(uuid.uuid4()),
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=180)
+        if r.ok:
+            choice = r.json()["choices"][0]
+            if choice.get("finish_reason") == "length":
+                raise RuntimeError("CAIL model ran out of output room (finish_reason=length); try fewer entries per batch")
+            return choice["message"]["content"]
+        try:
+            error = r.json().get("error", {})
+        except ValueError:
+            error = {}
+        code = error.get("code", r.status_code)
+        message = error.get("message", r.reason)
+        debug(f"CAIL Gateway error {r.status_code} ({code}): {message}")
+        if attempt == 0 and r.headers.get("x-should-retry", "").strip().lower() == "true":
+            try:
+                wait = min(max(int(r.headers.get("retry-after", "1")), 1), CAIL_MAX_RETRY_WAIT)
+            except ValueError:
+                wait = 1
+            debug(f"Gateway advises one retry in {wait}s")
+            time.sleep(wait)
+            continue
+        raise RuntimeError(f"CAIL Gateway error {r.status_code} ({code}): {message}")
+
+
 def batch_parse_with_llm(entries: List[str], provider: Optional[str], model: Optional[str], batch_size: int = 25) -> List[Dict[str, Any]]:
     """Return a list of CSL-JSON dicts; entries that fail parsing fall back to a minimal stub."""
     results: List[Dict[str, Any]] = []
@@ -599,8 +655,13 @@ def batch_parse_with_llm(entries: List[str], provider: Optional[str], model: Opt
         if not api_key:
             raise SystemExit("OPENROUTER_API_KEY not set")
         caller = lambda msgs: call_openrouter_chat(model, msgs, api_key)
+    elif provider == "cail":
+        api_key = os.getenv("CAIL_API_KEY")
+        if not api_key:
+            raise SystemExit("CAIL_API_KEY not set")
+        caller = lambda msgs: call_cail_chat(model, msgs, api_key)
     else:
-        raise SystemExit("--use-llm must be one of: openai, openrouter")
+        raise SystemExit("--use-llm must be one of: openai, openrouter, cail")
 
     for i in range(0, len(entries), batch_size):
         batch = entries[i:i+batch_size]
@@ -1067,11 +1128,14 @@ def prompt_use_llm() -> Optional[str]:
     print("  1. No LLM (basic extraction, raw text in notes)")
     print("  2. OpenAI")
     print("  3. OpenRouter")
-    choice = input("Enter choice (1, 2, or 3): ").strip()
+    print("  4. CUNY AI Lab (CAIL)")
+    choice = input("Enter choice (1, 2, 3, or 4): ").strip()
     if choice == "2":
         return "openai"
     elif choice == "3":
         return "openrouter"
+    elif choice == "4":
+        return "cail"
     else:
         return None
 
@@ -1086,6 +1150,11 @@ def prompt_model(provider: Optional[str]) -> Optional[str]:
         print(f"\nEnter OpenAI model name (press Enter for default):")
         print(f"Default: {default}")
         print("Options: gpt-4o-mini, gpt-4o, gpt-3.5-turbo, etc.")
+    elif provider == "cail":
+        default = CAIL_DEFAULT_MODEL
+        print(f"\nEnter CAIL model ID (press Enter for default):")
+        print(f"Default: {default}")
+        print("Use the exact prefix-free Gateway ID, e.g. gpt-oss-120b, gemma-4-26b-a4b-it")
     else:  # openrouter
         default = "openrouter/anthropic/claude-3.5-sonnet"
         print(f"\nEnter OpenRouter model name (press Enter for default):")
@@ -1096,12 +1165,16 @@ def prompt_model(provider: Optional[str]) -> Optional[str]:
     return user_input if user_input else default
 
 
+def api_key_env_var(provider: str) -> str:
+    return {"openai": "OPENAI_API_KEY", "cail": "CAIL_API_KEY"}.get(provider, "OPENROUTER_API_KEY")
+
+
 def prompt_api_key(provider: Optional[str]) -> Optional[str]:
     """Prompt for API key if not set in environment."""
     if not provider:
         return None
 
-    env_var = "OPENAI_API_KEY" if provider == "openai" else "OPENROUTER_API_KEY"
+    env_var = api_key_env_var(provider)
     existing = os.getenv(env_var)
 
     if existing:
@@ -1174,7 +1247,7 @@ def main():
     ap.add_argument("--file", default=None, help="Local file path (.txt, .docx, or .pdf)")
     ap.add_argument("--out", default=None, help="Output file path (e.g., zotero_bibliography.json / .ris)")
     ap.add_argument("--format", choices=["csljson", "ris"], default=None, help="Output format (default: csljson)")
-    ap.add_argument("--use-llm", choices=["openai", "openrouter"], default=None, help="Use an LLM to parse entries into structured fields")
+    ap.add_argument("--use-llm", "--provider", dest="use_llm", choices=["openai", "openrouter", "cail"], default=None, help="Use an LLM to parse entries into structured fields")
     ap.add_argument("--model", default=None, help="Model name for the chosen LLM provider")
     ap.add_argument("--max", type=int, default=None, help="Process only the first N entries (for testing)")
     ap.add_argument("--vision-ocr", action="store_true", help="Use vision AI to extract text from PDF (recommended for PDFs with encoding issues)")
@@ -1197,14 +1270,13 @@ def main():
     fmt = args.format or prompt_output_format()
     out_path = args.out or prompt_output_file(fmt)
     provider = args.use_llm if args.use_llm is not None else prompt_use_llm()
-    model = args.model or prompt_model(provider)
+    model = args.model or (CAIL_DEFAULT_MODEL if provider == "cail" and args.use_llm else prompt_model(provider))
 
     # Handle API key
     if provider:
         api_key = prompt_api_key(provider)
         if api_key:
-            env_var = "OPENAI_API_KEY" if provider == "openai" else "OPENROUTER_API_KEY"
-            os.environ[env_var] = api_key
+            os.environ[api_key_env_var(provider)] = api_key
 
     max_entries = args.max if args.max is not None else prompt_max_entries()
 
