@@ -93,20 +93,22 @@ export function createHandler({ fetchImpl = fetch } = {}) {
         if (typeof body?.title !== 'string' || body.title.length > 500 || typeof body?.author !== 'string' || body.author.length > 250) throw new AppError('invalid_request', 'Provide a title and author for library lookup.');
         const query = new URLSearchParams({ title: body.title, author: body.author, limit: '5' });
         if (Number.isInteger(body.year) && body.year > 0) query.set('first_publish_year', String(body.year));
-        const response = await fetchImpl(`https://openlibrary.org/search.json?${query}`, { redirect: 'error', credentials: 'omit', signal, headers: { accept: 'application/json' } });
-        if (!response.ok) throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502);
-        const result = await response.json();
-        const match = result.docs?.[0];
+        const response = await fetchImpl(`https://openlibrary.org/search.json?${query}`, { redirect: 'manual', credentials: 'omit', signal, headers: { accept: 'application/json' } });
+        if (!response.ok || response.status >= 300) { await response.body?.cancel(); throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
+        let result;
+        try { result = JSON.parse(await boundedText(response, 1024 * 1024)); } catch { throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
+        const match = result?.docs?.[0];
         if (!match) return json({ suggestion: null });
         const fields = {};
-        const isbn = match.isbn?.find(value => value.length === 13) || match.isbn?.find(value => value.length === 10);
+        const isbns = Array.isArray(match.isbn) ? match.isbn.filter(value => typeof value === 'string') : [];
+        const isbn = isbns.find(value => value.length === 13) || isbns.find(value => value.length === 10);
         if (isbn) fields.ISBN = isbn;
         if (match.oclc?.[0]) fields.OCLC = match.oclc[0];
         if (match.lccn?.[0]) fields['call-number'] = match.lccn[0];
         if (match.publisher?.[0]) fields.publisher = match.publisher[0];
         if (match.publish_place?.[0]) fields['publisher-place'] = match.publish_place[0];
         if (match.number_of_pages_median) fields['number-of-pages'] = String(match.number_of_pages_median);
-        return json({ suggestion: { title: match.title || body.title, url: match.key ? `https://openlibrary.org${match.key}` : 'https://openlibrary.org', fields } });
+        return json({ suggestion: { title: match.title || body.title, url: typeof match.key === 'string' && /^\/works\/OL\d+W$/.test(match.key) ? `https://openlibrary.org${match.key}` : 'https://openlibrary.org', fields } });
       }
       if (['/api/parse', '/api/ocr'].includes(path) && request.method === 'POST') {
         const body = await bodyJSON(request);

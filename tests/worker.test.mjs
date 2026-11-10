@@ -123,3 +123,36 @@ test('catalog with a bedrock-runtime row is served (cail-client 6.3.0 parser)', 
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).data.map(row => row.id), ['gpt-oss-120b', 'claude-on-bedrock']);
 });
+const enrichBody = { title: 'A Book', author: 'Smith' };
+const enrich = async upstream => {
+  const calls = [];
+  const handle = createHandler({ fetchImpl: async (url, init) => { calls.push(init); return upstream(); } });
+  const response = await handle(await request('enrich', enrichBody), env);
+  assert.equal(calls[0].redirect, 'manual');
+  return response;
+};
+test('enrich treats a redirect as unavailable and cancels the body', async () => {
+  let cancelled = false;
+  const body = new ReadableStream({ cancel() { cancelled = true; } });
+  const response = await enrich(() => new Response(body, { status: 302, headers: { location: 'https://evil.example/' } }));
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error.code, 'enrichment_unavailable');
+  assert.equal(cancelled, true);
+});
+test('enrich rejects an oversized Open Library body', async () => {
+  const response = await enrich(() => new Response('x'.repeat(1024 * 1024 + 1), { headers: { 'content-type': 'application/json' } }));
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error.code, 'enrichment_unavailable');
+});
+test('enrich tolerates malformed docs and only links Open Library works', async () => {
+  const response = await enrich(() => Response.json({ docs: [{ title: 'A Book', isbn: [123, null, '9780306406157'], key: '@evil.example/x', publisher: ['P'] }] }));
+  assert.equal(response.status, 200);
+  const { suggestion } = await response.json();
+  assert.equal(suggestion.fields.ISBN, '9780306406157');
+  assert.equal(suggestion.url, 'https://openlibrary.org');
+  const good = await enrich(() => Response.json({ docs: [{ isbn: 'not-an-array', key: '/works/OL123W' }] }));
+  const data = await good.json();
+  assert.equal(data.suggestion.url, 'https://openlibrary.org/works/OL123W');
+  assert.equal(data.suggestion.fields.ISBN, undefined);
+  assert.equal((await (await enrich(() => new Response('not json'))).json()).error.code, 'enrichment_unavailable');
+});
