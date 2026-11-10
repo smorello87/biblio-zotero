@@ -110,19 +110,30 @@ function enrichQuery(body) {
   return { type: body.type, ...fields, author: fields.author || '', year: body.year ?? undefined, yearEnd: body.yearEnd ?? undefined };
 }
 
+// Google Books keys are sent only to this host, only as a header (URLs get logged), and never appear
+// in a reply, an error message or a log line.
+const GOOGLE_HOST = 'www.googleapis.com';
+const GOOGLE_KEY = /^[A-Za-z0-9_-]{20,100}$/;
+// Google's quota refusals: 429, or 403 naming a quota reason (older and current error formats).
+const GOOGLE_QUOTA = /RESOURCE_EXHAUSTED|RATE_LIMIT_EXCEEDED|rateLimitExceeded|dailyLimitExceeded|quotaExceeded|userRateLimitExceeded/;
+
 // One catalog request: allowlisted HTTPS hosts only, redirects re-checked (at most two), bounded
 // body, its own deadline. Returns parsed JSON, null for 404, or throws a SourceError; a caller abort
 // propagates as an AbortError.
 function createCatalogFetch(publicFetch) {
-  return async function catalogFetch(address, limit, allowed, signal) {
+  return async function catalogFetch(address, limit, allowed, signal, googleKey) {
     let target = new URL(address);
     const deadline = AbortSignal.timeout(CATALOG_TIMEOUT_PER_SOURCE_MS);
     const both = AbortSignal.any([signal, deadline]);
     for (let hop = 0; hop < 3; hop++) {
       if (target.protocol !== 'https:' || target.username || target.password || target.port || !CATALOG_HOSTS.includes(target.hostname)) throw new SourceError('redirect');
       if (!allowed.includes(target.hostname)) throw new SourceError('disabled');
+      const google = target.hostname === GOOGLE_HOST;
+      if (google && googleKey === null) throw new SourceError('misconfigured');
+      // Rebuilt for every hop, so a redirect to another host never carries the key.
+      const headers = { accept: 'application/json', 'user-agent': CATALOG_USER_AGENT, ...(google && googleKey ? { 'x-goog-api-key': googleKey } : {}) };
       let response;
-      try { response = await publicFetch(target, { redirect: 'manual', credentials: 'omit', signal: both, headers: { accept: 'application/json', 'user-agent': CATALOG_USER_AGENT } }); }
+      try { response = await publicFetch(target, { redirect: 'manual', credentials: 'omit', signal: both, headers }); }
       catch (error) { if (signal.aborted) throw error; throw new SourceError(deadline.aborted ? 'timeout' : 'network'); }
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get('location');
@@ -132,7 +143,16 @@ function createCatalogFetch(publicFetch) {
         continue;
       }
       if (response.status === 404) { await response.body?.cancel(); return null; }
-      if (!response.ok) { await response.body?.cancel(); throw new SourceError('status', response.status); }
+      if (!response.ok) {
+        // With the Lab's key, a quota refusal means the Lab's daily quota is spent. Read only enough
+        // of the error to tell; its text is never passed on.
+        if (google && googleKey && [403, 429].includes(response.status)) {
+          let reason = '';
+          try { reason = await boundedText(response, 64 * 1024); } catch { /* the status alone decides */ }
+          if (response.status === 429 || GOOGLE_QUOTA.test(reason)) throw new SourceError('quota', response.status);
+        } else await response.body?.cancel();
+        throw new SourceError('status', response.status);
+      }
       if (!/^application\/(?:[\w.+-]+\+)?json\b/i.test(response.headers.get('content-type') || '')) { await response.body?.cancel(); throw new SourceError('unreadable'); }
       let text;
       try { text = await boundedText(response, limit); }
@@ -143,12 +163,65 @@ function createCatalogFetch(publicFetch) {
   };
 }
 
+// Catalog replies are public data, so they are cached for everyone: about a day for a record, ten
+// minutes for "nothing found", never for a refusal, server error or timeout (those throw). The key
+// is a hash of the source and the request URL this Worker built; the Google key is a header and is
+// never part of it, and nothing about the person is. Two layers: an in-isolate LRU (always works)
+// and the Cache API (caches.default), which Cloudflare documents as functional for Workers on custom
+// domains and which may be a no-op for a Worker reached only through a service binding.
+const CACHE_HIT_SECONDS = 24 * 60 * 60;
+const CACHE_EMPTY_SECONDS = 10 * 60;
+const CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const CACHE_MAX_ENTRIES = 1000;
+const CACHE_KEY_BASE = 'https://tools.ailab.gc.cuny.edu/bibliography/__catalog-cache/';
+const emptyReply = data => data === null || (typeof data === 'object' && ((Array.isArray(data.docs) && !data.docs.length) || (Array.isArray(data.message?.items) && !data.message.items.length) || (Array.isArray(data.search) && !data.search.length) || !Object.keys(data).length));
+async function cacheKey(source, address) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${source}\n${address}`)));
+  return [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function createCatalogCache({ now = Date.now, edge = () => globalThis.caches?.default } = {}) {
+  const memory = new Map();
+  let bytes = 0;
+  const drop = key => { const entry = memory.get(key); if (entry) { bytes -= entry.text.length; memory.delete(key); } };
+  return {
+    async get(key) {
+      const entry = memory.get(key);
+      if (entry && entry.expires > now()) { memory.delete(key); memory.set(key, entry); return { text: entry.text, layer: 'memory' }; }
+      drop(key);
+      try {
+        const hit = await edge()?.match(new Request(CACHE_KEY_BASE + key));
+        if (hit) return { text: await hit.text(), layer: 'edge' };
+      } catch { /* the Cache API is an optimisation */ }
+      return null;
+    },
+    async put(key, text, seconds) {
+      drop(key);
+      if (text.length <= CACHE_MAX_BYTES / 4) {
+        memory.set(key, { text, expires: now() + seconds * 1000 });
+        bytes += text.length;
+        for (const oldest of memory.keys()) { if (bytes <= CACHE_MAX_BYTES && memory.size <= CACHE_MAX_ENTRIES) break; drop(oldest); }
+      }
+      try { await edge()?.put(new Request(CACHE_KEY_BASE + key), new Response(text, { headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${seconds}` } })); } catch { /* best effort */ }
+    },
+  };
+}
+
 // fetchImpl reaches the public web (the catalogs above, enabled bibliography sites). Gateway calls go
 // through env.GATEWAY, a service binding to the Gateway Worker (cail-model-api); tests may pass
 // gatewayFetch, or a single fetchImpl for both.
-export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS } = {}) {
+export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS, cacheOptions } = {}) {
   const publicFetch = fetchImpl ?? ((input, init) => fetch(input, init));
   const catalogFetch = createCatalogFetch(publicFetch);
+  const lookupCache = createCatalogCache(cacheOptions);
+  async function cachedCatalogFetch(source, address, limit, allowed, signal, googleKey, counts) {
+    const key = await cacheKey(source, address);
+    const hit = await lookupCache.get(key);
+    if (hit) { counts[hit.layer]++; return JSON.parse(hit.text); }
+    const data = await catalogFetch(address, limit, allowed, signal, googleKey);
+    counts.miss++;
+    await lookupCache.put(key, JSON.stringify(data), emptyReply(data) ? CACHE_EMPTY_SECONDS : CACHE_HIT_SECONDS);
+    return data;
+  }
   let binding = null;
   const viaBinding = (input, init) => {
     if (!binding) throw new TypeError('GATEWAY service binding is not configured.');
@@ -215,7 +288,13 @@ export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_M
       if (path === '/api/enrich' && request.method === 'POST') {
         const query = enrichQuery(await bodyJSON(request));
         const allowed = env.CATALOG_HOSTS === undefined ? CATALOG_HOSTS : CATALOG_HOSTS.filter(host => String(env.CATALOG_HOSTS).split(',').map(value => value.trim()).includes(host));
-        return json(await runLookup(query, (source, address, limit) => catalogFetch(address, limit, allowed, signal), { pause: ms => new Promise(resolve => setTimeout(resolve, ms)) }));
+        // undefined: no key (keyless, best effort); null: a key is set but malformed.
+        const configured = typeof env.GOOGLE_BOOKS_API_KEY === 'string' ? env.GOOGLE_BOOKS_API_KEY.trim() : '';
+        const googleKey = !configured ? undefined : GOOGLE_KEY.test(configured) ? configured : null;
+        const counts = { memory: 0, edge: 0, miss: 0 };
+        const result = await runLookup(query, (source, address, limit) => cachedCatalogFetch(source, address, limit, allowed, signal, googleKey, counts), { pause: ms => new Promise(resolve => setTimeout(resolve, ms)) });
+        // Which cache layer answered (no data, no key): lets a release check confirm the Cache API works here.
+        return json(result, 200, { 'x-catalog-cache': `memory=${counts.memory}, edge=${counts.edge}, miss=${counts.miss}` });
       }
       if (['/api/parse', '/api/ocr'].includes(path) && request.method === 'POST') {
         const body = await bodyJSON(request);

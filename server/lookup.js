@@ -109,6 +109,7 @@ export class SourceError extends Error {
 }
 export function describeSourceFailure(error) {
   const status = error?.status;
+  if (error?.kind === 'quota') return 'refused the request (the Lab\'s Google Books quota is used up for today)';
   if (status === 429) return 'refused the request (rate limit)';
   if (status >= 500) return `had a server error (${status})`;
   if (status >= 400) return `refused the request (HTTP ${status})`;
@@ -117,6 +118,7 @@ export function describeSourceFailure(error) {
   if (error?.kind === 'unreadable') return 'sent an unreadable reply';
   if (error?.kind === 'redirect') return 'redirected to an address this tool does not use';
   if (error?.kind === 'disabled') return 'is not enabled';
+  if (error?.kind === 'misconfigured') return 'is not configured correctly (the Lab\'s API key is malformed)';
   return 'could not be reached';
 }
 const list = names => names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];

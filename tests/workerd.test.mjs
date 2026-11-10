@@ -169,3 +169,48 @@ test('quota and parse reach the Gateway Worker through the GATEWAY binding while
     assert.equal(parse.status, 200, await parse.clone().text());
   } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
 });
+test('under workerd the Google key travels only as a header to Google, and the Cache API serves catalog replies to another isolate', async () => {
+  const KEY = 'AIzaSyTEST_key-0123456789abcdefghijk';
+  const issuer = await createTestIdentityIssuer();
+  const directory = await mkdtemp(join(tmpdir(), 'bibliography-workerd-'));
+  const outfile = join(directory, 'worker.mjs');
+  await build({ entryPoints: ['server/worker.js'], outfile, bundle: true, format: 'esm', platform: 'neutral', external: ['cloudflare:workers', 'node:*'] });
+  const volume = { items: [{ id: 'abcd1234', volumeInfo: { title: 'Book', authors: ['Jo Smith'], publishedDate: '2000', industryIdentifiers: [{ type: 'ISBN_13', identifier: '9780306406157' }] } }] };
+  const calls = [];
+  const worker = (name, outboundService) => ({ name, modules: true, scriptPath: outfile, modulesRoot: '/', compatibilityDate: '2026-09-07', compatibilityFlags,
+    bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson, GOOGLE_BOOKS_API_KEY: KEY }, outboundService });
+  // Two Workers from the same bundle are two isolates (separate in-memory caches) sharing workerd's
+  // default Cache API store, as two isolates of the production Worker would share a data centre's.
+  // Reached as in production, through a service binding (here from a stand-in for Doorway).
+  const doorway = 'export default { fetch: (request, env) => (request.headers.get("x-isolate") === "second" ? env.SECOND : env.FIRST).fetch(request) };';
+  const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [
+    { name: 'doorway', modules: true, script: doorway, compatibilityDate: '2026-09-07', serviceBindings: { FIRST: 'first', SECOND: 'second' } },
+    worker('first', async request => {
+      const host = new URL(request.url).hostname;
+      calls.push({ host, url: request.url, key: request.headers.get('x-goog-api-key') });
+      return host === 'www.googleapis.com' ? Response.json(volume) : Response.json(host === 'openlibrary.org' ? { docs: [] } : { message: { items: [] } });
+    }),
+    worker('second', async () => { throw new Error('the second isolate must not reach the network'); }),
+  ] }));
+  const lookup = async name => {
+    const response = await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/api/enrich', { method: 'POST', body: JSON.stringify({ type: 'book', title: 'Book', author: 'Smith', year: 2000 }), headers: {
+      'content-type': 'application/json', origin: 'https://tools.ailab.gc.cuny.edu', 'x-isolate': name,
+      'x-cail-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:bibliography' }),
+      'x-cail-gateway-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:gateway', subject: TEST_SUBJECTS.alice }) } });
+    const text = await response.text();
+    assert.equal(response.status, 200, text);
+    assert.ok(!text.includes(KEY));
+    return { body: JSON.parse(text), cache: response.headers.get('x-catalog-cache') };
+  };
+  try {
+    const fresh = await lookup('first');
+    assert.equal(fresh.body.status, 'matched');
+    assert.equal(fresh.cache, 'memory=0, edge=0, miss=3');
+    assert.deepEqual(calls.map(call => [call.host, call.key]).sort(), [['api.crossref.org', null], ['openlibrary.org', null], ['www.googleapis.com', KEY]]);
+    assert.ok(calls.every(call => !call.url.includes(KEY)));
+    assert.equal((await lookup('first')).cache, 'memory=3, edge=0, miss=0');
+    const other = await lookup('second');
+    assert.equal(other.cache, 'memory=0, edge=3, miss=0');
+    assert.equal(other.body.status, 'matched');
+  } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
+});
