@@ -15,11 +15,18 @@ async function request(path, body, options = {}) {
 const catalogRow = (id, overrides = {}) => ({ id, object: 'model', recommended: false, tier: 'advanced', order: 10, status: 'active', modality: 'text', provider: 'workers-ai', upstream_model: id, pricing_known: 'catalog', streaming: true, sunset: null, capabilities: ['text-generation'], context_length: 8192, registry_url: null, ...overrides });
 const catalogOf = rows => Response.json({ object: 'list', data: rows.map(([id, capabilities, overrides]) => catalogRow(id, { capabilities, ...overrides })) });
 const batch = { model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] };
-test('invalid verifier configuration is 503; missing, wrong or mismatched identity is 401', async () => {
+test('invalid verifier configuration is 503; missing identity is authentication_required; wrong, malformed or mismatched identity is invalid_credential', async () => {
   const handle = createHandler({ fetchImpl: () => assert.fail('Must not contact Gateway') });
-  assert.equal((await handle(await request('quota'), {})).status, 503);
-  assert.equal((await handle(new Request('https://tools.ailab.gc.cuny.edu/bibliography/api/quota'), env)).status, 401);
-  for (const options of [{ other: true }, { audience: 'cail:other' }, { expiry: -3600 }]) assert.equal((await handle(await request('parse', batch, options), env)).status, 401);
+  const failure = async (req, configuration = env) => { const response = await handle(req, configuration); return [response.status, (await response.json()).error.code]; };
+  assert.deepEqual(await failure(await request('quota'), {}), [503, 'identity_unavailable']);
+  assert.deepEqual(await failure(new Request('https://tools.ailab.gc.cuny.edu/bibliography/api/quota'), {}), [503, 'identity_unavailable']);
+  assert.deepEqual(await failure(new Request('https://tools.ailab.gc.cuny.edu/bibliography/api/quota')), [401, 'authentication_required']);
+  for (const options of [{ other: true }, { audience: 'cail:other' }, { expiry: -3600 }, { headers: { 'x-cail-identity-jwt': 'not-a-jwt' } }, { headers: { 'x-cail-gateway-identity-jwt': 'not-a-jwt' } }, { headers: { 'x-cail-gateway-identity-jwt': '' } }]) {
+    assert.deepEqual(await failure(await request('parse', batch, options)), [401, 'invalid_credential'], JSON.stringify(options));
+  }
+  const appOnly = await request('parse', batch);
+  appOnly.headers.delete('x-cail-gateway-identity-jwt');
+  assert.deepEqual(await failure(appOnly), [401, 'invalid_credential']);
 });
 test('both parsing and OCR use the member Gateway leg and strip ambient credentials', async () => {
   const calls = [];

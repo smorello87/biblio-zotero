@@ -64,8 +64,11 @@ async function readiness(env) {
 
 async function authenticate(request, env) {
   const configs = await verifierConfigs(env);
+  // Only an absent app leg means "no session" (which makes the page restart sign-in). A present but
+  // malformed leg is an invalid credential, like one that fails verification.
+  if (request.headers.get('x-cail-identity-jwt') === null) throw new AppError('authentication_required', 'Sign in with CUNY to continue.', 401);
   const keyring = readIdentityKeyring(request.headers);
-  if (!keyring) throw new AppError('authentication_required', 'Sign in with CUNY to continue.', 401);
+  if (!keyring) throw new AppError('invalid_credential', 'Your sign-in has expired or is invalid. Sign in again.', 401);
   const identity = await verifyIdentityJwt(keyring.appJwt, configs[0]);
   if (!identity || !await verifyKeyringGatewayJwt(keyring, configs[1], identity.subject)) throw new AppError('invalid_credential', 'Your sign-in has expired or is invalid. Sign in again.', 401);
   return { kind: 'jwt', token: keyring.gatewayJwt };
