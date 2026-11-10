@@ -11,9 +11,13 @@ const display = (id, visible) => { $(id).hidden = !visible; };
 function showError(error) {
   $('error-banner').textContent = error.message || 'The operation could not be completed.';
   if (error.retryAfter) $('error-banner').append(text('p', `You can try again in about ${error.retryAfter < 120 ? `${error.retryAfter} seconds` : `${Math.ceil(error.retryAfter / 60)} minutes`}.`, 'help'));
+  if (error.signInUrl) { const line = document.createElement('p'); line.append(signInLink(error.signInUrl)); $('error-banner').append(line); }
   if (error.requestId) $('error-banner').append(text('p', `Support reference: ${error.requestId}`, 'help'));
   display('error-banner', true);
 }
+// Shown with every lost-session error, so sign-in can restart even when the automatic navigation did
+// not happen (cancelled, already tried in the last minute, or no sessionStorage). Same-origin only.
+function signInLink(url) { const link = text('a', 'Sign in with CUNY', 'button secondary'); link.href = url; return link; }
 function stage(number) {
   for (let n = 1; n <= 4; n++) display(`step-${n}`, n === number);
   document.querySelectorAll('.steps li').forEach((node, index) => {
@@ -45,7 +49,7 @@ async function refreshQuota() {
       $('quota-content').replaceChildren(number, text('p', `${money(quota.estimated_used)} used of ${money(quota.limit)}`, 'help'), meter, text('p', `Estimated shared usage. ${window}. Calculated ${at}. Updates may be delayed.`, 'help'));
     } catch { $('quota-content').replaceChildren(text('p', 'Usage estimate is temporarily unavailable. You can still try a conversion.', 'help')); }
   } catch (error) {
-    $('session-status').textContent = error.status === 401 ? 'Sign in with CUNY to convert' : 'CUNY connection unavailable';
+    $('session-status').replaceChildren(error.signInUrl ? signInLink(error.signInUrl) : text('span', error.status === 401 ? 'Sign in with CUNY to convert' : 'CUNY connection unavailable'));
     $('quota-content').replaceChildren(text('p', 'You can prepare and review your bibliography here. A connected CUNY session is required for AI conversion.', 'help'));
   } finally { $('refresh-quota').disabled = false; }
 }
