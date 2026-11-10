@@ -473,11 +473,31 @@ LLM_SYSTEM_PROMPT = (
 )
 
 LLM_USER_TEMPLATE = (
-    "Convert the following bibliographic entries into CSL-JSON. Return a JSON object with an 'items' key containing an array of CSL-JSON objects, in the SAME order as the input.\n\n"
+    "Convert the following bibliographic entries into CSL-JSON. Return a JSON object with an 'items' key containing an array of CSL-JSON objects, in the SAME order as the input. Each entry is numbered like [1]; copy that number into an integer 'source_id' field on its item, and omit the item (do not guess) if you cannot parse it.\n\n"
     "Entries:\n{entries}\n\n"
     "Your response must be in this format:\n"
-    "{{\n  \"items\": [\n    {{\n      \"type\": \"book\",\n      \"title\": \"...\",\n      \"author\": [{{\"family\": \"...\", \"given\": \"...\"}}],\n      \"editor\": [...],\n      \"issued\": {{\"date-parts\": [[1999]]}},\n      \"publisher\": \"...\",\n      \"publisher-place\": \"...\",\n      \"container-title\": \"...\",\n      \"volume\": \"...\",\n      \"issue\": \"...\",\n      \"page\": \"...\",\n      \"language\": \"it\"\n    }}\n  ]\n}}"
+    "{{\n  \"items\": [\n    {{\n      \"source_id\": 1,\n      \"type\": \"book\",\n      \"title\": \"...\",\n      \"author\": [{{\"family\": \"...\", \"given\": \"...\"}}],\n      \"editor\": [...],\n      \"issued\": {{\"date-parts\": [[1999]]}},\n      \"publisher\": \"...\",\n      \"publisher-place\": \"...\",\n      \"container-title\": \"...\",\n      \"volume\": \"...\",\n      \"issue\": \"...\",\n      \"page\": \"...\",\n      \"language\": \"it\"\n    }}\n  ]\n}}"
 )
+
+
+def items_by_source_id(items: List[Any], count: int) -> Optional[Dict[int, Dict[str, Any]]]:
+    """Map 0-based batch positions to items using the model-echoed 1-based 'source_id'.
+
+    Returns None when no item carries a usable source_id (caller falls back to positional matching).
+    The echoed id is removed so it never reaches the CSL-JSON output.
+    """
+    found: Dict[int, Dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict) or "source_id" not in item:
+            continue
+        raw_id = item["source_id"]
+        try:
+            index = int(raw_id) - 1 if not isinstance(raw_id, bool) else -1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < count and index not in found:
+            found[index] = {k: v for k, v in item.items() if k != "source_id"}
+    return found or None
 
 
 def call_openai_chat(model: str, messages: List[Dict[str, str]], api_key: str) -> str:
@@ -584,7 +604,7 @@ def batch_parse_with_llm(entries: List[str], provider: Optional[str], model: Opt
 
     for i in range(0, len(entries), batch_size):
         batch = entries[i:i+batch_size]
-        content = LLM_USER_TEMPLATE.format(entries="\n".join(f"- {x}" for x in batch))
+        content = LLM_USER_TEMPLATE.format(entries="\n".join(f"[{n}] {x}" for n, x in enumerate(batch, 1)))
         messages = [
             {"role": "system", "content": LLM_SYSTEM_PROMPT},
             {"role": "user", "content": content}
@@ -616,8 +636,22 @@ def batch_parse_with_llm(entries: List[str], provider: Optional[str], model: Opt
                 debug(f"First 200 chars of raw response: {raw[:200]}")
                 raise ValueError("Unexpected JSON structure from LLM")
 
-            # Handle batch size mismatches
-            if len(items) != len(batch):
+            by_id = items_by_source_id(items, len(batch))
+            if by_id is not None:
+                # Match on the echoed source_id so a dropped item cannot shift later citations
+                for j, entry in enumerate(batch):
+                    if j in by_id:
+                        results.append(by_id[j])
+                    else:
+                        debug(f"LLM omitted entry {j + 1} of {len(batch)}; creating stub record")
+                        failed.append(entry)
+                        results.append({
+                            "type": "manuscript",
+                            "title": entry,
+                            "note": "LLM returned incomplete batch; raw citation preserved in title. Consider re-processing individually."
+                        })
+            # Handle batch size mismatches (no source_id echoed: positional matching)
+            elif len(items) != len(batch):
                 if len(items) < len(batch):
                     # LLM returned fewer items than expected
                     debug(f"Warning: LLM returned {len(items)} items for a batch of {len(batch)}")

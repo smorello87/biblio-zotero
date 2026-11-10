@@ -24,7 +24,7 @@ npm run check                   # syntax checks, all tests, then build
 npm test                        # tests only
 npm run worker:dev              # build + wrangler dev
 npx wrangler deploy --dry-run   # offline bundle check (never deploy locally; releases go through CI)
-python3 -m unittest tests/test_omeka_cli.py   # Python CLI tests
+python3 -m unittest tests/test_omeka_cli.py   # Python CLI tests (needs requests, beautifulsoup4)
 ```
 
 ## Identity and Gateway flow
