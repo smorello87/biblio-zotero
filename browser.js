@@ -1,4 +1,4 @@
-import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON, NAME_ROLES, DATE_FIELDS } from './core.js';
+import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON, NAME_ROLES, DATE_FIELDS, lookupPlan, lookupQuery, applySuggestion, catalogLink } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
 import { createApi } from './api.js';
 import { modelMenus, chooseModel } from './models.js';
@@ -142,16 +142,20 @@ async function convert(retry = false) {
       const reconciled = reconcileItems(parseModelJSON(result.content), batch);
       for (const record of reconciled) Object.assign(state.records.find(r => r.id === record.id), record, { model: state.model, requestId: result.request_id });
       if (state.enrich) {
-        for (const record of reconciled.filter(r => r.status === 'ready' && r.item.type === 'book')) {
+        for (const record of reconciled.filter(r => r.status === 'ready')) {
           state.controller.signal.throwIfAborted();
-          $('progress-text').textContent = 'Looking for library metadata…';
-          try {
-            const result = await api('enrich', { title: record.item.title, author: record.item.author?.[0]?.family || record.item.author?.[0]?.literal || '', year: record.item.issued?.['date-parts']?.[0]?.[0] }, state.controller.signal);
-            state.records.find(r => r.id === record.id).suggestion = result.suggestion;
-          } catch (error) {
+          const target = state.records.find(r => r.id === record.id);
+          const query = lookupQuery(record.item);
+          // Types no catalog covers are reported without sending anything.
+          if (lookupPlan(query.type, { doi: Boolean(query.doi) }).group === 'none') { target.lookup = { status: 'unsupported', message: 'No catalog covers this kind of source; kept as written.' }; continue; }
+          $('progress-text').textContent = 'Looking up catalog records…';
+          try { target.lookup = await api('enrich', query, state.controller.signal); }
+          catch (error) {
             if (state.controller.signal.aborted || [401, 403, 429].includes(error.status)) throw error;
-            state.records.find(r => r.id === record.id).enrichmentError = 'Library lookup was unavailable. The parsed record is preserved.';
+            target.lookup = { status: 'failed', message: `The lookup could not be completed. ${error.message || ''}`.trim() };
           }
+          // About one lookup a second, as the catalogs ask of shared clients.
+          await new Promise(resolve => setTimeout(resolve, 1100));
         }
       }
     }
@@ -187,15 +191,7 @@ function renderResults() {
       }
       body.append(fields);
     } else body.append(text('p', record.error || 'This entry has not been converted yet.', 'help'));
-    if (record.enrichmentError) body.append(text('p', record.enrichmentError, 'help'));
-    if (record.suggestion) {
-      const suggestion = document.createElement('div'); suggestion.className = 'notice';
-      suggestion.append(text('p', `Possible library match: ${record.suggestion.title}. Check the edition before accepting.`));
-      const link = text('a', 'View catalog record'); link.href = record.suggestion.url; link.target = '_blank'; link.rel = 'noreferrer'; suggestion.append(link);
-      const accept = text('button', 'Use missing metadata', 'text-button');
-      accept.addEventListener('click', () => { for (const [key, value] of Object.entries(record.suggestion.fields)) if (!record.item[key]) record.item[key] = value; record.enrichment = record.suggestion; delete record.suggestion; renderResults(); });
-      suggestion.append(document.createElement('br'), accept); body.append(suggestion);
-    }
+    if (record.item && record.lookup) body.append(renderLookup(record));
     const edit = document.createElement('details'); edit.append(text('summary', 'Edit CSL-JSON record'));
     const input = document.createElement('textarea'); input.value = JSON.stringify(record.item || { type: 'book', title: record.source }, null, 2); input.setAttribute('aria-label', `Edit record ${record.id}`);
     const feedback = text('p', '', 'help'); feedback.setAttribute('role', 'status');
@@ -212,6 +208,32 @@ function renderResults() {
   const pages = Math.ceil(state.records.length / 20);
   display('pagination', pages > 1); $('page-label').textContent = `Page ${state.page + 1} of ${pages}`;
   $('previous-page').disabled = state.page === 0; $('next-page').disabled = state.page + 1 >= pages;
+}
+// One catalog suggestion: what it is, where it came from, and a button that fills only missing fields.
+function renderChoice(record, choice, label) {
+  const box = document.createElement('div'); box.className = 'notice';
+  box.append(text('p', `${label}: ${choice.title}${choice.summary ? ` (${choice.summary})` : ''}${choice.description ? ` — ${choice.description}` : ''}. Source: ${choice.source}.${choice.confirmed === false ? ' Not confirmed by a date, creator or website; check it is the same work.' : ' Check it is the same edition or work before accepting.'}`));
+  const href = catalogLink(choice.url);
+  if (href) { const link = text('a', 'View catalog record'); link.href = href; link.target = '_blank'; link.rel = 'noreferrer'; box.append(link, document.createElement('br')); }
+  const feedback = text('p', '', 'help'); feedback.setAttribute('role', 'status');
+  const accept = text('button', 'Use missing metadata', 'text-button');
+  accept.addEventListener('click', () => {
+    const item = applySuggestion(record.item, choice.fields);
+    if (!item) { feedback.textContent = 'This suggestion could not be applied to the record.'; return; }
+    record.item = item; record.enrichment = { source: choice.source, url: choice.url, title: choice.title };
+    record.lookup = { status: 'applied', message: `Missing fields filled from ${choice.source}.` }; renderResults();
+  });
+  box.append(accept, feedback);
+  return box;
+}
+function renderLookup(record) {
+  const { lookup } = record;
+  const wrap = document.createElement('div');
+  if (lookup.status === 'matched') wrap.append(renderChoice(record, lookup.suggestion, 'Possible catalog match'));
+  else if (lookup.status === 'choices') { wrap.append(text('p', 'Several catalog records could match. Use one, or none:', 'help')); lookup.choices.forEach((choice, index) => wrap.append(renderChoice(record, choice, `Option ${index + 1}`))); }
+  else wrap.append(text('p', lookup.message || 'The lookup could not be completed.', 'help'));
+  if (lookup.warning) wrap.append(text('p', `Some catalogs could not be checked: ${lookup.warning}`, 'help'));
+  return wrap;
 }
 function download(content, filename, type) {
   const url = URL.createObjectURL(new Blob([content], { type }));
