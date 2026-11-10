@@ -13,7 +13,7 @@ async function request(path, body, options = {}) {
   return new Request(`https://tools.ailab.gc.cuny.edu/bibliography/api/${path}`, { method: body ? 'POST' : 'GET', headers, ...(body ? { body: JSON.stringify(body) } : {}) });
 }
 const catalogRow = (id, overrides = {}) => ({ id, object: 'model', recommended: false, tier: 'advanced', order: 10, status: 'active', modality: 'text', provider: 'workers-ai', upstream_model: id, pricing_known: 'catalog', streaming: true, sunset: null, capabilities: ['text-generation'], context_length: 8192, registry_url: null, ...overrides });
-const catalogOf = rows => Response.json({ object: 'list', data: rows.map(([id, capabilities]) => catalogRow(id, { capabilities })) });
+const catalogOf = rows => Response.json({ object: 'list', data: rows.map(([id, capabilities, overrides]) => catalogRow(id, { capabilities, ...overrides })) });
 const batch = { model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] };
 test('invalid verifier configuration is 503; missing, wrong or mismatched identity is 401', async () => {
   const handle = createHandler({ fetchImpl: () => assert.fail('Must not contact Gateway') });
@@ -183,12 +183,25 @@ const modelCall = async (rows, model, reply, path = 'parse') => {
   const response = await handle(await request(path, body), env);
   return { response, sent };
 };
-test('reasoning and unlisted models get 16000 output tokens on parse and OCR; plain models are left alone', async () => {
+test('reasoning, unlisted and Workers AI models get explicit output room capped by context; other plain models keep their default', async () => {
   const ok = { choices: [{ message: { content: '{"items":[]}' }, finish_reason: 'stop' }] };
-  const rows = [['gpt-oss-120b', ['text-generation', 'reasoning']], ['gemma-4-26b-a4b-it', ['text-generation', 'vision']]];
+  // Shapes taken from the public catalog on 2026-11-09.
+  const rows = [
+    ['gpt-oss-120b', ['text-generation', 'function-calling', 'reasoning', 'structured-output'], { context_length: 128000 }],
+    ['gemma-4-26b-a4b-it', ['text-generation', 'function-calling', 'reasoning', 'vision'], { context_length: 256000 }],
+    ['qwq-32b', ['text-generation', 'reasoning'], { context_length: 24000 }],
+    ['llama-4-scout-17b-16e-instruct', ['text-generation', 'function-calling', 'vision'], { context_length: 131000 }],
+    ['gemma-7b-it-lora', ['text-generation'], { context_length: 3500 }],
+    ['qwen3-vl-235b-a22b-instruct', ['text-generation', 'vision', 'function-calling'], { provider: 'bedrock-mantle', context_length: 262144 }],
+  ];
   assert.equal((await modelCall(rows, 'gpt-oss-120b', ok)).sent[0].max_tokens, 16000);
-  assert.equal((await modelCall(rows, 'qwen3-vl-235b-a22b-instruct', ok, 'ocr')).sent[0].max_tokens, 16000);
-  assert.equal((await modelCall(rows, 'gemma-4-26b-a4b-it', ok)).sent[0].max_tokens, undefined);
+  assert.equal((await modelCall(rows, 'gemma-4-26b-a4b-it', ok, 'ocr')).sent[0].max_tokens, 16000);
+  assert.equal((await modelCall(rows, 'qwq-32b', ok)).sent[0].max_tokens, 12000);
+  // A non-reasoning Workers AI model would otherwise answer with at most 256 tokens.
+  assert.equal((await modelCall(rows, 'llama-4-scout-17b-16e-instruct', ok, 'ocr')).sent[0].max_tokens, 16000);
+  assert.equal((await modelCall(rows, 'gemma-7b-it-lora', ok)).sent[0].max_tokens, 1750);
+  assert.equal((await modelCall(rows, 'qwen3-vl-235b-a22b-instruct', ok, 'ocr')).sent[0].max_tokens, undefined);
+  assert.equal((await modelCall(rows, 'not-in-catalog', ok)).sent[0].max_tokens, 16000);
 });
 test('capabilities are cached per handler and a catalog outage still requests output room', async () => {
   let catalogCalls = 0;

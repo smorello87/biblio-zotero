@@ -34,7 +34,7 @@ Doorway handles CUNY login and Admission, then forwards two signed JWTs to the W
 
 ## Models
 
-Model IDs are canonical and prefix-free Gateway IDs: `gpt-oss-120b` (default), `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`. Provider-prefixed or `auto/` IDs are rejected. The page builds its menus from the Gateway catalog (text-generation rows; vision rows for OCR) and falls back to these three. Parse and OCR requests send `max_tokens: 16000` for reasoning models (and when the catalog is unavailable); an exhausted budget is reported as `model_output_limit`. `wrangler.toml` enables `enable_request_signal` so a caller abort reaches the Gateway call. Do not change which models are offered by default or the compatibility date/flags without the owner's decision.
+Model IDs are canonical and prefix-free Gateway IDs: `gpt-oss-120b` (default), `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`. Provider-prefixed or `auto/` IDs are rejected. The page builds its menus from the Gateway catalog (text-generation rows; vision rows for OCR) and falls back to these three. Parse and OCR requests send `max_tokens` (16000, capped at half the catalog `context_length`) for reasoning models, Workers AI routes (whose Chat default is 256 tokens) and models the catalog does not list; other non-reasoning routes keep their provider default. An exhausted budget is reported as `model_output_limit`. `wrangler.toml` enables `enable_request_signal` so a caller abort reaches the Gateway call. Do not change which models are offered by default or the compatibility date/flags without the owner's decision.
 
 ## Constraints
 

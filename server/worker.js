@@ -5,8 +5,10 @@ import { parsingPrompt, ocrPrompt } from './prompts.js';
 const ORIGIN = 'https://tools.ailab.gc.cuny.edu';
 const AUDIENCE = 'cail:bibliography';
 const MAX_BODY = 8 * 1024 * 1024;
-// Reasoning models spend output tokens on thinking; Workers AI defaults are small enough to return
-// an empty reply with finish_reason "length". Parse and OCR calls ask for this much room.
+// Reasoning models spend output tokens on thinking, and Workers AI Chat defaults max_tokens to 256
+// when the caller omits it (Gateway adds a default only for GPT-OSS). Either way a batch of CSL-JSON
+// ends with finish_reason "length". Parse and OCR calls ask for this much room, capped at half the
+// model's context window so the input still fits.
 const MAX_OUTPUT_TOKENS = 16000;
 const CATALOG_CACHE_MS = 10 * 60 * 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -77,10 +79,16 @@ export function createHandler({ fetchImpl = fetch } = {}) {
     if (Date.now() - capabilityCache.at > CATALOG_CACHE_MS) {
       try {
         const catalog = await client.getCatalogSnapshot({ modality: 'all', signal });
-        capabilityCache = { at: Date.now(), models: new Map(catalog.data.map(row => [row.id, row.capabilities])) };
-      } catch { capabilityCache = { at: Date.now() - CATALOG_CACHE_MS + 30000, models: new Map() }; /* Unknown capabilities fall back to requesting the output room; retry discovery in 30s. */ }
+        capabilityCache = { at: Date.now(), models: new Map(catalog.data.map(row => [row.id, row])) };
+      } catch { capabilityCache = { at: Date.now() - CATALOG_CACHE_MS + 30000, models: new Map() }; /* Unknown models fall back to requesting the output room; retry discovery in 30s. */ }
     }
     return capabilityCache.models.get(model);
+  }
+  // Unlisted models, reasoning models and Workers AI routes (256-token default) get explicit room.
+  // Other non-reasoning routes keep their provider default, which is not known to be small.
+  function outputTokens(row) {
+    if (row && !row.capabilities.includes('reasoning') && row.provider !== 'workers-ai') return undefined;
+    return Number.isInteger(row?.context_length) && row.context_length > 0 ? Math.min(MAX_OUTPUT_TOKENS, Math.floor(row.context_length / 2)) : MAX_OUTPUT_TOKENS;
   }
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -137,8 +145,8 @@ export function createHandler({ fetchImpl = fetch } = {}) {
           if (typeof body.image !== 'string' || !/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(body.image)) throw new AppError('invalid_image', 'Provide one PDF page image.');
           payload = { model, temperature: 0, messages: [{ role: 'user', content: [{ type: 'text', text: ocrPrompt }, { type: 'image_url', image_url: { url: body.image } }] }] };
         }
-        const capabilities = await modelCapabilities(model, signal);
-        if (!capabilities || capabilities.includes('reasoning')) payload.max_tokens = MAX_OUTPUT_TOKENS;
+        const maxTokens = outputTokens(await modelCapabilities(model, signal));
+        if (maxTokens !== undefined) payload.max_tokens = maxTokens;
         const correlation = { request_id: requestId, trace_id: crypto.randomUUID().replaceAll('-', ''), span_id: crypto.randomUUID().replaceAll('-', '').slice(0, 16), trace_flags: 0 };
         const response = await client.chatCompletions(payload, credential, { signal, correlation });
         let data;
