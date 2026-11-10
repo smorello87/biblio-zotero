@@ -187,6 +187,9 @@ test('retryable 503 forwards x-should-retry and Retry-After; quota exhaustion is
   assert.equal(spent.headers.get('x-should-retry'), 'false');
   assert.equal(spent.headers.get('retry-after'), '3600');
 });
+// Node's AbortSignal.timeout() timers do not keep the event loop alive (workerd's do); hold it open
+// while a test waits on one.
+const keepingAlive = async work => { const timer = setInterval(() => {}, 1000); try { return await work(); } finally { clearInterval(timer); } };
 const modelCall = async (rows, model, reply, path = 'parse') => {
   const sent = [];
   const handle = createHandler({ fetchImpl: async (url, init) => {
@@ -198,27 +201,42 @@ const modelCall = async (rows, model, reply, path = 'parse') => {
   const response = await handle(await request(path, body), env);
   return { response, sent };
 };
-test('reasoning, unlisted and Workers AI models get explicit output room capped by context; other plain models keep their default', async () => {
+test('output budget and reasoning controls follow the catalog row', async () => {
   const ok = { choices: [{ message: { content: '{"items":[]}' }, finish_reason: 'stop' }] };
   // Shapes taken from the public catalog on 2026-11-09.
   const rows = [
     ['gpt-oss-120b', ['text-generation', 'function-calling', 'reasoning', 'structured-output'], { context_length: 128000 }],
     ['gemma-4-26b-a4b-it', ['text-generation', 'function-calling', 'reasoning', 'vision'], { context_length: 256000 }],
-    ['qwq-32b', ['text-generation', 'reasoning'], { context_length: 24000 }],
+    ['qwq-32b', ['text-generation', 'reasoning'], { context_length: 12000 }],
+    ['kimi-k2.5', ['text-generation', 'vision', 'reasoning'], { provider: 'bedrock-mantle', context_length: 262144 }],
     ['llama-4-scout-17b-16e-instruct', ['text-generation', 'function-calling', 'vision'], { context_length: 131000 }],
     ['gemma-7b-it-lora', ['text-generation'], { context_length: 3500 }],
     ['qwen3-vl-235b-a22b-instruct', ['text-generation', 'vision', 'function-calling'], { provider: 'bedrock-mantle', context_length: 262144 }],
   ];
-  assert.equal((await modelCall(rows, 'gpt-oss-120b', ok)).sent[0].max_tokens, 16000);
-  assert.equal((await modelCall(rows, 'gemma-4-26b-a4b-it', ok, 'ocr')).sent[0].max_tokens, 16000);
-  assert.equal((await modelCall(rows, 'qwq-32b', ok)).sent[0].max_tokens, 12000);
-  // A non-reasoning Workers AI model would otherwise answer with at most 256 tokens.
-  assert.equal((await modelCall(rows, 'llama-4-scout-17b-16e-instruct', ok, 'ocr')).sent[0].max_tokens, 16000);
-  assert.equal((await modelCall(rows, 'gemma-7b-it-lora', ok)).sent[0].max_tokens, 1750);
-  assert.equal((await modelCall(rows, 'qwen3-vl-235b-a22b-instruct', ok, 'ocr')).sent[0].max_tokens, undefined);
-  assert.equal((await modelCall(rows, 'not-in-catalog', ok)).sent[0].max_tokens, 16000);
+  const sent = async (model, path = 'parse', entries = 1) => {
+    const handle = createHandler({ fetchImpl: async (url, init) => new URL(url).pathname === '/v1/catalog' ? catalogOf(rows) : (calls.push(JSON.parse(init.body)), Response.json(ok)) });
+    const calls = [];
+    const body = path === 'parse' ? { model, entries: Array.from({ length: entries }, (_, i) => ({ id: `entry-${i}`, source: 'Smith. 2020. A book.' })) } : { model, image: 'data:image/png;base64,aGVsbG8=' };
+    assert.equal((await handle(await request(path, body), env)).status, 200);
+    const { model: _, messages, temperature, response_format, ...controls } = calls[0];
+    return controls;
+  };
+  const thinkingOff = { reasoning_effort: 'low', chat_template_kwargs: { enable_thinking: false } };
+  // Reasoning: 4,000 headroom + 250 per entry (parse) or 4,000 (OCR), never above 10,000 or half the context.
+  assert.deepEqual(await sent('gpt-oss-120b'), { max_tokens: 4250, ...thinkingOff });
+  assert.deepEqual(await sent('gpt-oss-120b', 'parse', 25), { max_tokens: 10000, ...thinkingOff });
+  assert.deepEqual(await sent('gemma-4-26b-a4b-it', 'ocr'), { max_tokens: 8000, ...thinkingOff });
+  assert.deepEqual(await sent('qwq-32b', 'parse', 25), { max_tokens: 6000, ...thinkingOff });
+  // reasoning_effort is Gateway-gated on the reasoning capability; enable_thinking only on Workers AI.
+  assert.deepEqual(await sent('kimi-k2.5', 'ocr'), { max_tokens: 8000, reasoning_effort: 'low' });
+  // Non-reasoning Workers AI would otherwise answer with at most 256 tokens; never reasoning controls.
+  assert.deepEqual(await sent('llama-4-scout-17b-16e-instruct', 'ocr'), { max_tokens: 16000 });
+  assert.deepEqual(await sent('gemma-7b-it-lora'), { max_tokens: 1750 });
+  assert.deepEqual(await sent('qwen3-vl-235b-a22b-instruct', 'ocr'), {});
+  // Unlisted (or catalog unknown): room, but no reasoning controls that a plain model would reject.
+  assert.deepEqual(await sent('not-in-catalog'), { max_tokens: 16000 });
 });
-test('capabilities are cached per handler and a catalog outage still requests output room', async () => {
+test('catalog reads are shared, bounded, and a failed read is retried only after 30 s', async () => {
   let catalogCalls = 0;
   const handle = createHandler({ fetchImpl: async url => {
     if (new URL(url).pathname === '/v1/catalog') { catalogCalls++; return new Response('down', { status: 503 }); }
@@ -226,13 +244,61 @@ test('capabilities are cached per handler and a catalog outage still requests ou
   } });
   for (let i = 0; i < 2; i++) assert.equal((await handle(await request('parse', batch), env)).status, 200);
   assert.equal(catalogCalls, 1);
-  const cached = [];
-  const good = createHandler({ fetchImpl: async (url, init) => {
-    if (new URL(url).pathname === '/v1/catalog') { cached.push('catalog'); return catalogOf([['gpt-oss-120b', ['text-generation', 'reasoning']]]); }
+  let reads = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const shared = createHandler({ fetchImpl: async url => {
+    if (new URL(url).pathname === '/v1/catalog') { reads++; await gate; return catalogOf([['gpt-oss-120b', ['text-generation', 'reasoning']]]); }
     return Response.json({ choices: [{ message: { content: '{}' } }] });
   } });
-  await good(await request('parse', batch), env); await good(await request('parse', batch), env);
-  assert.equal(cached.length, 1);
+  const concurrent = Promise.all([1, 2, 3].map(async () => shared(await request('parse', batch), env)));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  release();
+  assert.deepEqual((await concurrent).map(response => response.status), [200, 200, 200]);
+  await shared(await request('parse', batch), env);
+  assert.equal(reads, 1);
+  // A hung catalog costs at most its own deadline, then the call proceeds as for an unlisted model.
+  const sent = [];
+  const hung = createHandler({ catalogTimeoutMs: 30, fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === '/v1/catalog') return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));
+    sent.push(JSON.parse(init.body)); return Response.json({ choices: [{ message: { content: '{}' } }] });
+  } });
+  assert.equal((await keepingAlive(async () => hung(await request('parse', batch), env))).status, 200);
+  assert.equal(sent[0].max_tokens, 16000);
+});
+test('a caller cancelling during the catalog read neither aborts it nor poisons the cache', async () => {
+  let reads = 0, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const sent = [];
+  const handle = createHandler({ fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === '/v1/catalog') { reads++; await gate; assert.equal(init.signal.aborted, false); return catalogOf([['gpt-oss-120b', ['text-generation', 'reasoning']]]); }
+    sent.push(JSON.parse(init.body)); return Response.json({ choices: [{ message: { content: '{}' } }] });
+  } });
+  const controller = new AbortController();
+  const signed = await request('parse', batch);
+  const cancelled = handle(new Request(signed, { signal: controller.signal }), env);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  controller.abort();
+  assert.equal((await cancelled).status, 499);
+  release();
+  assert.equal((await handle(await request('parse', batch), env)).status, 200);
+  assert.equal(reads, 1);
+  assert.equal(sent.length, 1, 'the cancelled request never reached chat completions');
+  assert.equal(sent[0].reasoning_effort, 'low', 'the second request saw the real catalog row');
+});
+test('timeouts tell the person to use fewer entries or another model', async () => {
+  const slow = createHandler({ deadlineMs: 30, fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === '/v1/catalog') return catalogOf([]);
+    return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));
+  } });
+  const response = await keepingAlive(async () => slow(await request('parse', batch), env));
+  assert.equal(response.status, 504);
+  const { error } = await response.json();
+  assert.equal(error.code, 'request_timeout');
+  assert.match(error.message, /fewer entries per request or another model/);
+  const upstream = createHandler({ fetchImpl: async url => new URL(url).pathname === '/v1/catalog' ? catalogOf([]) : cailErrorResponse(504, cailErrorEnvelope({ code: 'upstream_timeout', type: 'upstream_timeout', message: 'The provider did not finish this request in time.' }), { 'x-should-retry': 'false' }) });
+  const gateway = await (await upstream(await request('parse', batch), env)).json();
+  assert.equal(gateway.error.code, 'upstream_timeout');
+  assert.match(gateway.error.message, /^The provider did not finish this request in time\. .*fewer entries per request or another model/);
 });
 test('an exhausted output budget is its own error, with and without content', async () => {
   for (const content of ['', '{"items":[{"source_id":"entry-1"']) {

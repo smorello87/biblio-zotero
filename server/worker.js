@@ -5,12 +5,24 @@ import { parsingPrompt, ocrPrompt } from './prompts.js';
 const ORIGIN = 'https://tools.ailab.gc.cuny.edu';
 const AUDIENCE = 'cail:bibliography';
 const MAX_BODY = 8 * 1024 * 1024;
-// Reasoning models spend output tokens on thinking, and Workers AI Chat defaults max_tokens to 256
-// when the caller omits it (Gateway adds a default only for GPT-OSS). Either way a batch of CSL-JSON
-// ends with finish_reason "length". Parse and OCR calls ask for this much room, capped at half the
-// model's context window so the input still fits.
+// Workers AI Chat defaults max_tokens to 256 when the caller omits it (Gateway adds a default only
+// for GPT-OSS), which truncates any CSL-JSON batch. Non-reasoning Workers AI and unlisted models ask
+// for this much room, capped at half the model's context window so the input still fits.
 const MAX_OUTPUT_TOKENS = 16000;
+// Reasoning models bill thinking as output. LanGames measured (2026-09-20) that 4,000 tokens of
+// headroom let every recommended reasoning model answer, while a larger budget let one reason past a
+// two-minute timeout. So reasoning models get the catalog-gated reasoning_effort "low" (and, on Workers
+// AI, enable_thinking: false), 4,000 tokens of headroom plus room for the expected output, and a hard
+// cap that a model can emit well inside the 180 s deadline.
+const REASONING_HEADROOM_TOKENS = 4000;
+const REASONING_MAX_TOKENS = 10000;
+const OUTPUT_TOKENS_PER_ENTRY = 250;
+const OCR_OUTPUT_TOKENS = 4000;
+const DEADLINE_MS = 180000;
 const CATALOG_CACHE_MS = 10 * 60 * 1000;
+const CATALOG_RETRY_MS = 30000;
+const CATALOG_TIMEOUT_MS = 5000;
+const TIMEOUT_ADVICE = 'Completed entries are preserved. Try fewer entries per request or another model.';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 class AppError extends Error {
   constructor(code, message, status = 400) { super(message); Object.assign(this, { code, status }); }
@@ -74,24 +86,42 @@ async function authenticate(request, env) {
   return { kind: 'jwt', token: keyring.gatewayJwt };
 }
 
-export function createHandler({ fetchImpl = fetch } = {}) {
+export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS } = {}) {
   const client = createCailClient({ app: 'bibliography', fetchImpl });
-  // Per-isolate cache of catalog capabilities by model ID; the catalog is public and shared.
-  let capabilityCache = { at: 0, models: new Map() };
-  async function modelCapabilities(model, signal) {
-    if (Date.now() - capabilityCache.at > CATALOG_CACHE_MS) {
-      try {
-        const catalog = await client.getCatalogSnapshot({ modality: 'all', signal });
-        capabilityCache = { at: Date.now(), models: new Map(catalog.data.map(row => [row.id, row])) };
-      } catch { capabilityCache = { at: Date.now() - CATALOG_CACHE_MS + 30000, models: new Map() }; /* Unknown models fall back to requesting the output room; retry discovery in 30s. */ }
-    }
-    return capabilityCache.models.get(model);
+  // Per-isolate cache of catalog rows by model ID; the catalog is public and shared. Concurrent
+  // requests share one read, which has its own short deadline and ignores any one caller's signal,
+  // so a person cancelling their request cannot poison the cache. Only a failed read is held back
+  // for 30 s; meanwhile models are treated as unlisted.
+  let catalogCache = { at: 0, models: new Map() };
+  let catalogRead = null;
+  function catalogModels() {
+    if (Date.now() - catalogCache.at <= CATALOG_CACHE_MS) return Promise.resolve(catalogCache.models);
+    catalogRead ??= client.getCatalogSnapshot({ modality: 'all', signal: AbortSignal.timeout(catalogTimeoutMs) })
+      .then(catalog => { catalogCache = { at: Date.now(), models: new Map(catalog.data.map(row => [row.id, row])) }; },
+        () => { catalogCache = { at: Date.now() - CATALOG_CACHE_MS + CATALOG_RETRY_MS, models: new Map() }; })
+      .then(() => catalogCache.models)
+      .finally(() => { catalogRead = null; });
+    return catalogRead;
   }
-  // Unlisted models, reasoning models and Workers AI routes (256-token default) get explicit room.
-  // Other non-reasoning routes keep their provider default, which is not known to be small.
-  function outputTokens(row) {
-    if (row && !row.capabilities.includes('reasoning') && row.provider !== 'workers-ai') return undefined;
-    return Number.isInteger(row?.context_length) && row.context_length > 0 ? Math.min(MAX_OUTPUT_TOKENS, Math.floor(row.context_length / 2)) : MAX_OUTPUT_TOKENS;
+  async function catalogRow(model, signal) {
+    signal.throwIfAborted();
+    let onAbort;
+    const aborted = new Promise((_, reject) => { onAbort = () => reject(signal.reason); signal.addEventListener('abort', onAbort, { once: true }); });
+    try { return (await Promise.race([catalogModels(), aborted])).get(model); }
+    finally { signal.removeEventListener('abort', onAbort); }
+  }
+  // Output budget and reasoning controls for one parse or OCR call, from the model's catalog row.
+  function modelControls(row, path, entries) {
+    const contextCap = Number.isInteger(row?.context_length) && row.context_length > 0 ? Math.floor(row.context_length / 2) : Infinity;
+    if (row?.capabilities.includes('reasoning')) {
+      const expected = path === '/api/parse' ? OUTPUT_TOKENS_PER_ENTRY * entries : OCR_OUTPUT_TOKENS;
+      // The Gateway rejects reasoning_effort for a model without the reasoning capability, so it is
+      // sent only on the catalog's say-so; enable_thinking is a Workers AI chat-template switch.
+      return { max_tokens: Math.min(REASONING_HEADROOM_TOKENS + expected, REASONING_MAX_TOKENS, contextCap), reasoning_effort: 'low', ...(row.provider === 'workers-ai' ? { chat_template_kwargs: { enable_thinking: false } } : {}) };
+    }
+    // Other non-reasoning routes keep their provider default, which is not known to be small.
+    if (row && row.provider !== 'workers-ai') return {};
+    return { max_tokens: Math.min(MAX_OUTPUT_TOKENS, contextCap) };
   }
   return async function handle(request, env) {
     const url = new URL(request.url);
@@ -109,7 +139,7 @@ export function createHandler({ fetchImpl = fetch } = {}) {
         url.pathname = '/bibliography/';
         return new Response(null, { status: 308, headers: { location: url.href, 'cache-control': 'no-store' } });
       }
-      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(180000)]);
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(deadlineMs)]);
       const path = url.pathname.replace(/^\/bibliography/, '');
       if (path === '/api/session' && request.method === 'GET') return json({ authenticated: true });
       if (path === '/api/quota' && request.method === 'GET') return json(await client.getQuota(credential, { signal }));
@@ -154,8 +184,7 @@ export function createHandler({ fetchImpl = fetch } = {}) {
           if (typeof body.image !== 'string' || !/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(body.image)) throw new AppError('invalid_image', 'Provide one PDF page image.');
           payload = { model, temperature: 0, messages: [{ role: 'user', content: [{ type: 'text', text: ocrPrompt }, { type: 'image_url', image_url: { url: body.image } }] }] };
         }
-        const maxTokens = outputTokens(await modelCapabilities(model, signal));
-        if (maxTokens !== undefined) payload.max_tokens = maxTokens;
+        Object.assign(payload, modelControls(await catalogRow(model, signal), path, path === '/api/parse' ? body.entries.length : 1));
         const correlation = { request_id: requestId, trace_id: crypto.randomUUID().replaceAll('-', ''), span_id: crypto.randomUUID().replaceAll('-', '').slice(0, 16), trace_flags: 0 };
         const response = await client.chatCompletions(payload, credential, { signal, correlation });
         let data;
@@ -203,7 +232,7 @@ export function createHandler({ fetchImpl = fetch } = {}) {
       const known = error instanceof AppError || error instanceof CailError;
       const status = known ? (error.status >= 400 ? error.status : 502) : error.name === 'TimeoutError' ? 504 : error.name === 'AbortError' ? 499 : 502;
       const code = known ? error.code : status === 504 ? 'request_timeout' : status === 499 ? 'request_cancelled' : 'service_unavailable';
-      const message = known ? error.message : status === 504 ? 'The request timed out. Completed entries are preserved.' : status === 499 ? 'The request was cancelled.' : 'The service is temporarily unavailable. Completed entries are preserved.';
+      const message = known ? (error.code === 'upstream_timeout' ? `${error.message} ${TIMEOUT_ADVICE}` : error.message) : status === 504 ? `The model did not finish within ${DEADLINE_MS / 60000} minutes. ${TIMEOUT_ADVICE}` : status === 499 ? 'The request was cancelled.' : 'The service is temporarily unavailable. Completed entries are preserved.';
       const retry = error instanceof CailError ? error.extras.should_retry : status === 503;
       const retryAfter = error instanceof CailError ? error.extras.retry_after_seconds : undefined;
       return json({ error: { code, message, request_id: requestId } }, status, { 'x-should-retry': retry === true ? 'true' : 'false', 'x-cail-request-id': requestId, ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { 'retry-after': String(retryAfter) } : {}) });
