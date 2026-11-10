@@ -1,7 +1,7 @@
 import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
 import { createApi } from './api.js';
-import { modelMenus } from './models.js';
+import { modelMenus, chooseModel, PREFERRED_PARSE, PREFERRED_VISION } from './models.js';
 
 const $ = id => document.getElementById(id);
 const state = { records: [], controller: null, busy: false, page: 0, model: '', enrich: false };
@@ -52,15 +52,15 @@ async function refreshQuota() {
 function fillSelect(select, models, preferred, extra = []) {
   const current = select.value;
   select.replaceChildren(...[...models.map(model => [model.id, model.label]), ...extra].map(([value, label]) => { const option = document.createElement('option'); option.value = value; option.textContent = label; return option; }));
-  const values = [...select.options].map(option => option.value);
-  select.value = values.includes(current) ? current : values.includes(preferred) ? preferred : values[0];
+  select.value = chooseModel(current, [...select.options].map(option => option.value), preferred);
 }
 async function loadCatalog() {
   try {
     const menus = modelMenus(await api('catalog'));
-    fillSelect($('model-select'), menus.parse, 'gpt-oss-120b', [['other', 'Other Gateway model ID']]);
-    fillSelect($('vision-model-select'), menus.vision, 'qwen3-vl-235b-a22b-instruct');
-    $('gateway-models').replaceChildren(...menus.parse.map(model => { const option = document.createElement('option'); option.value = model.id; option.label = model.label; return option; }));
+    fillSelect($('model-select'), menus.parse, PREFERRED_PARSE, [['other', 'Other Gateway model ID']]);
+    fillSelect($('vision-model-select'), menus.vision, PREFERRED_VISION);
+    display('custom-model-input', $('model-select').value === 'other');
+    $('gateway-models').replaceChildren(...menus.suggestions.map(model => { const option = document.createElement('option'); option.value = model.id; option.label = model.label; return option; }));
   } catch { /* Discovery is informational; the built-in menus and exact model IDs remain usable. */ }
 }
 function currentModel() {
