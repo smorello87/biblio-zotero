@@ -79,6 +79,16 @@ to an address a person supplies:
   maps and web pages or digital projects to Wikidata (`wbsearchentities` plus
   `wbgetentities`). A source's 429, 5xx or timeout is reported by name and never
   shown as "not found". Types no catalog covers are reported without a request.
+- **Google Books key** (optional Worker secret `GOOGLE_BOOKS_API_KEY`): sent only to
+  `www.googleapis.com` as `X-Goog-Api-Key`, never in a URL or reply. Without it Google
+  Books is keyless and, in practice, refused.
+- **Cache**: catalog replies are public data and are cached across users, keyed by a
+  hash of source and request URL: 24 h for records, 10 min for empty replies, never for
+  refusals, server errors or timeouts. An in-isolate LRU always applies; the Cache API
+  (`caches.default`) is used as well. Cloudflare documents the Cache API as working for
+  Workers on custom domains; whether it stores anything for a Worker reached only through
+  a service binding is unverified. The `x-catalog-cache` response header on
+  `/api/enrich` (`memory=…, edge=…, miss=…`) shows which layer answered.
 
 ## Verification boundary
 

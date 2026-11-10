@@ -71,3 +71,8 @@ test('wrangler.toml, the Worker and the release check agree on the catalog allow
   assert.deepEqual(configured.split(','), JSON.parse(worker.match(/const CATALOG_HOSTS = (\[[^\]]+\]);/)[1].replaceAll("'", '"')));
   assert.ok(verifier.includes(`binding.text === '${configured}'`));
 });
+test('release readback does not require the optional Google Books key, and accepts it when present', async () => {
+  const withKey = good();
+  withKey.version.resources.bindings.push({ name: 'GOOGLE_BOOKS_API_KEY', type: 'secret_text' });
+  for (const fixture of [good(), withKey]) assert.equal((await verify(fixture)).status, 0);
+});

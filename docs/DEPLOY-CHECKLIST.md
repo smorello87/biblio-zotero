@@ -17,12 +17,37 @@ Names only below. Never put values in source, logs, or comments.
 | `CLOUDFLARE_API_TOKEN` | secret | GitHub repository `smorello87/biblio-zotero`, Settings, Environments, `production` | `wrangler deploy` and `scripts/verify-release.mjs` |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | same `production` environment | same; must be the CUNY AI Lab account that holds `cail-doorway`, because service bindings only resolve within one account |
 | `CAIL_IDENTITY_JWKS` | secret | same `production` environment | the release job validates it for both audiences (`cail:bibliography`, `cail:gateway`), then installs it on the Worker as a secret via `--secrets-file`. It must be the fleet's pinned verifier key set, identical to the one Doorway signs against |
+| `GOOGLE_BOOKS_API_KEY` | secret, **optional** | same `production` environment | when present, the release installs it on the Worker via `--secrets-file` and Google Books lookups use the Lab's quota (sent only to `www.googleapis.com`, only as `X-Goog-Api-Key`). When absent, nothing is written and lookups stay keyless. Not checked by `verify-release.mjs`. See *Google Books key* below |
 | `GH_TOKEN` | automatic | `github.token` | stale-SHA checks against `main` |
 | `RELEASE_SHA`, `RELEASE_SECRETS_FILE` | job-local | set by the workflow | not configured by hand |
 
 No package-read token is needed any more: `@cuny-ai-lab/*` installs from public npm.
 Also in GitHub: the `production` environment needs required reviewers (or equivalent
 protection), and `main` must allow the author to merge. Both are prerequisites outside this repo.
+
+### Google Books key (optional)
+
+Keyless Google Books requests are refused: on 2026-11-10 Google attributed them to a shared project whose
+per-day quota is 0 (`quota_limit_value: "0"`, `defaultPerDayPerProject`), so without a key Google Books
+always reports "refused the request (rate limit)". A key gives the Lab's own project quota. Google's Books
+API documentation does not state the default daily quota; check it in the Google Cloud console under the
+Books API's quotas.
+
+1. In the Google Cloud console create an API key in a Lab project with the Books API enabled. Restrict it to
+   the Books API (API restrictions); an IP or referrer restriction will not work from Cloudflare.
+2. Store it as the `production` environment secret, from the clipboard on macOS:
+   `pbpaste | tr -d '\r\n' | gh secret set GOOGLE_BOOKS_API_KEY --env production --repo smorello87/biblio-zotero`
+3. Re-run the release (step 2 below) for the current `main` SHA. The secrets step rejects a malformed key
+   (without printing it).
+4. Check: a lookup for a book shows Google Books results, or "the Lab's Google Books quota is used up for
+   today" once the quota is spent.
+
+Rotate: create the new key, repeat steps 2 and 3, then delete the old key in the Google Cloud console.
+Remove: delete the GitHub secret (`gh secret delete GOOGLE_BOOKS_API_KEY --env production --repo
+smorello87/biblio-zotero`). A release never deletes a Worker secret (`--secrets-file` is additive), so also
+delete it from the Worker: `npx wrangler secret delete GOOGLE_BOOKS_API_KEY --name cail-bibliography` (or the
+dashboard). That deploys an untagged version, so re-run the release for the current `main` SHA straight
+after, to restore a tagged, verified version. Lookups then go back to keyless.
 
 ### `wrangler.toml` values that must stay pinned
 
