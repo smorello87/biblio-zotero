@@ -125,16 +125,22 @@ export function createHandler({ fetchImpl = fetch } = {}) {
         try { result = JSON.parse(await boundedText(response, 1024 * 1024)); } catch { throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
         const match = result?.docs?.[0];
         if (!match) return json({ suggestion: null });
+        // Every suggested value is merged into a CSL-JSON record on acceptance, so only short strings pass.
+        const first = (value, pattern = /\S/) => (Array.isArray(value) ? value : []).find(item => typeof item === 'string' && item.length <= 300 && pattern.test(item));
         const fields = {};
-        const isbns = Array.isArray(match.isbn) ? match.isbn.filter(value => typeof value === 'string') : [];
-        const isbn = isbns.find(value => value.length === 13) || isbns.find(value => value.length === 10);
+        const isbn = first(match.isbn, /^\d{13}$/) || first(match.isbn, /^\d{9}[\dX]$/);
         if (isbn) fields.ISBN = isbn;
-        if (match.oclc?.[0]) fields.OCLC = match.oclc[0];
-        if (match.lccn?.[0]) fields['call-number'] = match.lccn[0];
-        if (match.publisher?.[0]) fields.publisher = match.publisher[0];
-        if (match.publish_place?.[0]) fields['publisher-place'] = match.publish_place[0];
-        if (match.number_of_pages_median) fields['number-of-pages'] = String(match.number_of_pages_median);
-        return json({ suggestion: { title: match.title || body.title, url: typeof match.key === 'string' && /^\/works\/OL\d+W$/.test(match.key) ? `https://openlibrary.org${match.key}` : 'https://openlibrary.org', fields } });
+        const oclc = first(match.oclc, /^\d{1,20}$/);
+        if (oclc) fields.OCLC = oclc;
+        const lccn = first(match.lccn, /^[a-z]{0,3}\d{1,12}$/);
+        if (lccn) fields['call-number'] = lccn;
+        const publisher = first(match.publisher);
+        if (publisher) fields.publisher = publisher;
+        const place = first(match.publish_place);
+        if (place) fields['publisher-place'] = place;
+        if (Number.isSafeInteger(match.number_of_pages_median) && match.number_of_pages_median > 0) fields['number-of-pages'] = String(match.number_of_pages_median);
+        const title = typeof match.title === 'string' && match.title.trim() && match.title.length <= 500 ? match.title : body.title;
+        return json({ suggestion: { title, url: typeof match.key === 'string' && /^\/works\/OL\d+W$/.test(match.key) ? `https://openlibrary.org${match.key}` : 'https://openlibrary.org', fields } });
       }
       if (['/api/parse', '/api/ocr'].includes(path) && request.method === 'POST') {
         const body = await bodyJSON(request);

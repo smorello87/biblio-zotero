@@ -166,6 +166,14 @@ test('enrich tolerates malformed docs and only links Open Library works', async 
   assert.equal(data.suggestion.fields.ISBN, undefined);
   assert.equal((await (await enrich(() => new Response('not json'))).json()).error.code, 'enrichment_unavailable');
 });
+test('enrich passes only short, well-formed strings into suggested fields', async () => {
+  const hostile = { title: { toString: 1 }, isbn: ['97803064061570000', '030640615X'], oclc: [{ a: 1 }, '12345'], lccn: [['x'], '2001012345'], publisher: [7, 'x'.repeat(301), 'Press'], publish_place: [null], number_of_pages_median: '12; DROP', key: '/works/OL1W' };
+  const { suggestion } = await (await enrich(() => Response.json({ docs: [hostile] }))).json();
+  assert.equal(suggestion.title, 'A Book');
+  assert.deepEqual(suggestion.fields, { ISBN: '030640615X', OCLC: '12345', 'call-number': '2001012345', publisher: 'Press' });
+  const typical = { title: 'A Book', isbn: ['0306406152', '9780306406157'], oclc: ['42'], lccn: ['n79021164'], publisher: ['Plenum'], publish_place: ['New York'], number_of_pages_median: 316, key: '/works/OL1W' };
+  assert.deepEqual((await (await enrich(() => Response.json({ docs: [typical] }))).json()).suggestion.fields, { ISBN: '9780306406157', OCLC: '42', 'call-number': 'n79021164', publisher: 'Plenum', 'publisher-place': 'New York', 'number-of-pages': '316' });
+});
 test('retryable 503 forwards x-should-retry and Retry-After; quota exhaustion is non-retryable', async () => {
   const unavailable = createHandler({ fetchImpl: async () => cailErrorResponse(503, cailErrorEnvelope({ code: 'service_unavailable', type: 'server_error', cail: { retry_after_seconds: 7 } }), { 'x-should-retry': 'true' }) });
   const busy = await unavailable(await request('parse', batch), env);
