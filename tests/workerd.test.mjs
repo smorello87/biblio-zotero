@@ -99,3 +99,25 @@ test('wrangler.toml enables request.signal and an aborted caller aborts the Gate
   const status = await gatewayAfterClientAbort(compatibilityFlags);
   assert.deepEqual(status, { started: 1, aborted: 1 });
 });
+test('the licence is served as text/plain from the built assets under workerd', async () => {
+  const { execFileSync } = await import('node:child_process');
+  execFileSync(process.execPath, ['scripts/build.mjs'], { stdio: 'ignore' });
+  const issuer = await createTestIdentityIssuer();
+  const directory = await mkdtemp(join(tmpdir(), 'bibliography-workerd-'));
+  const outfile = join(directory, 'worker.mjs');
+  await build({ entryPoints: ['server/worker.js'], outfile, bundle: true, format: 'esm', platform: 'neutral', external: ['cloudflare:workers', 'node:*'] });
+  const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [{
+    name: 'bibliography', modules: true, modulesRoot: '/', compatibilityDate: '2026-09-07', compatibilityFlags, scriptPath: outfile,
+    bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson },
+    assets: { directory: 'dist', binding: 'ASSETS', run_worker_first: true, routerConfig: { has_user_worker: true } },
+  }] }));
+  try {
+    const headers = { 'x-cail-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:bibliography' }), 'x-cail-gateway-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:gateway', subject: TEST_SUBJECTS.alice }) };
+    const response = await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/LICENSE.txt', { headers });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.match(await response.text(), /GNU GENERAL PUBLIC LICENSE/);
+    const html = await (await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/', { headers })).text();
+    assert.match(html, /href="LICENSE\.txt"/);
+  } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
+});
