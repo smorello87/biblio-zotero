@@ -1,5 +1,6 @@
 import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
+import { createApi } from './api.js';
 
 const $ = id => document.getElementById(id);
 const state = { records: [], controller: null, busy: false, page: 0, model: '', enrich: false };
@@ -23,23 +24,7 @@ function busy(value) {
   state.busy = value;
   document.querySelectorAll('.settings-panel input,.settings-panel select,#pdf-options input,#pdf-options select,.source-choices input,#file-field,#example-btn,#review-btn').forEach(node => { node.disabled = value; });
 }
-async function api(path, body, signal) {
-  const requestId = crypto.randomUUID();
-  const response = await fetch(new URL(path, apiBase), {
-    method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', redirect: 'error',
-    headers: { 'content-type': 'application/json', 'x-cail-request-id': requestId },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(185000)])
-  });
-  let result;
-  try { result = await response.json(); } catch { throw new Error('The CAIL service returned an unreadable response.'); }
-  if (!response.ok) {
-    const error = new Error(result.error?.message || 'The CAIL service is unavailable.');
-    Object.assign(error, { status: response.status, code: result.error?.code, requestId: result.error?.request_id || requestId, shouldRetry: response.headers.get('x-should-retry') === 'true' });
-    throw error;
-  }
-  return result;
-}
+const api = createApi({ location, base: apiBase, storage: globalThis.sessionStorage });
 
 async function refreshQuota() {
   $('refresh-quota').disabled = true;

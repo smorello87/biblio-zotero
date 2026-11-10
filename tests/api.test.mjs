@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createApi } from '../api.js';
+
+const failure = (status, code, headers = {}) => new Response(JSON.stringify({ error: { code, message: 'No.', request_id: 'r' } }), { status, headers: { 'content-type': 'application/json', ...headers } });
+function setup(response, extra = {}) {
+  const calls = [], assigned = [];
+  const location = { href: 'https://tools.ailab.gc.cuny.edu/bibliography/', assign: url => assigned.push(String(url)) };
+  const api = createApi({ fetchImpl: async (...args) => { calls.push(args); return response(); }, location, base: new URL('api/', location.href), ...extra });
+  return { api, calls, assigned };
+}
+test('lost CAIL session restarts sign-in once with no retry of the request', async () => {
+  for (const code of ['authentication_required', 'session_invalid']) {
+    const { api, calls, assigned } = setup(() => failure(401, code));
+    await assert.rejects(api('quota'), error => error.status === 401 && error.signInRestarted === true);
+    await assert.rejects(api('quota'), error => error.signInRestarted === false);
+    assert.deepEqual(assigned, ['https://tools.ailab.gc.cuny.edu/bibliography/']);
+    assert.equal(calls.length, 2, 'each call fetches once; nothing is re-issued');
+  }
+});
+test('sign-in restart is not repeated across a reload within a minute', async () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  const first = setup(() => failure(401, 'session_invalid'), { storage });
+  await assert.rejects(first.api('quota'));
+  const second = setup(() => failure(401, 'session_invalid'), { storage });
+  await assert.rejects(second.api('quota'));
+  assert.equal(first.assigned.length, 1);
+  assert.equal(second.assigned.length, 0);
+});
+test('the Worker invalid_credential code and other errors only show an error', async () => {
+  for (const [status, code] of [[401, 'invalid_credential'], [403, 'authentication_required'], [429, 'quota_exceeded']]) {
+    const { api, assigned } = setup(() => failure(status, code));
+    await assert.rejects(api('parse', {}), error => error.code === code && !error.signInRestarted);
+    assert.deepEqual(assigned, []);
+  }
+});
