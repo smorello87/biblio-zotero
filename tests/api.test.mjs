@@ -41,8 +41,14 @@ test('retry advice is exposed from x-should-retry and retry-after', async () => 
   const none = setup(() => failure(429, 'quota_exceeded', { 'x-should-retry': 'false' }));
   await assert.rejects(none.api('parse', {}), error => error.shouldRetry === false && error.retryAfter === undefined);
 });
-test('unusable model output stays retryable even though the Worker sends x-should-retry: false', async () => {
-  for (const code of ['invalid_model_response', 'model_output_limit']) {
+test('a non-envelope error body still yields a safe error', async () => {
+  for (const body of ['null', '42', '{"error":{"message":{"x":1}}}']) {
+    const { api } = setup(() => new Response(body, { status: 502, headers: { 'content-type': 'application/json' } }));
+    await assert.rejects(api('parse', {}), error => error.status === 502 && error.message === 'The CAIL service is unavailable.');
+  }
+});
+test('unusable model output, timeouts and network failures keep the Retry button even though the Worker sends x-should-retry: false', async () => {
+  for (const code of ['invalid_model_response', 'model_output_limit', 'request_timeout', 'network_error']) {
     const { api } = setup(() => failure(502, code, { 'x-should-retry': 'false' }));
     await assert.rejects(api('parse', {}), error => error.shouldRetry === true);
   }
