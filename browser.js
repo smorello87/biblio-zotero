@@ -1,4 +1,4 @@
-import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS } from './core.js';
+import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
 import { createApi } from './api.js';
 import { modelMenus } from './models.js';
@@ -130,9 +130,7 @@ async function convert(retry = false) {
       $('batch-status').textContent = `Request ${Math.floor(i / batchSize) + 1} of ${Math.ceil(pending.length / batchSize)}`;
       $('progress').value = i / pending.length * 100;
       const result = await api('parse', { model: state.model, entries: batch.map(record => ({ id: record.id, source: record.citation })) }, state.controller.signal);
-      let parsed;
-      try { parsed = JSON.parse(result.content); } catch { parsed = {}; }
-      const reconciled = reconcileItems(parsed, batch);
+      const reconciled = reconcileItems(parseModelJSON(result.content), batch);
       for (const record of reconciled) Object.assign(state.records.find(r => r.id === record.id), record, { model: state.model, requestId: result.request_id });
       if (state.enrich) {
         for (const record of reconciled.filter(r => r.status === 'ready' && r.item.type === 'book')) {

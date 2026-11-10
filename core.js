@@ -52,6 +52,22 @@ export function validateItem(value) {
   return item;
 }
 
+// Models without structured-output support (Gemma 4 and Qwen 3 VL in the default menu) may ignore
+// json_object mode and wrap the object in a Markdown fence or a sentence. Recover the outermost object;
+// anything else is treated as no items, so every entry stays unresolved rather than misattributed.
+export function parseModelJSON(content) {
+  if (typeof content !== 'string') return {};
+  const candidates = [content.trim()];
+  const fenced = content.match(/```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```/i);
+  if (fenced) candidates.push(fenced[1].trim());
+  const start = content.indexOf('{'), end = content.lastIndexOf('}');
+  if (start !== -1 && end > start) candidates.push(content.slice(start, end + 1));
+  for (const candidate of candidates) {
+    try { const value = JSON.parse(candidate); if (value && typeof value === 'object' && !Array.isArray(value)) return value; } catch { /* try the next candidate */ }
+  }
+  return {};
+}
+
 export function reconcileItems(response, entries) {
   const items = Array.isArray(response?.items) ? response.items : [];
   return entries.map(entry => {

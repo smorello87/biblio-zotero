@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitEntries, reconcileItems, toRIS } from '../core.js';
+import { splitEntries, reconcileItems, toRIS, parseModelJSON } from '../core.js';
 
 test('preserves title-first citations and wrapped lines', () => {
   assert.deepEqual(splitEntries('Home and Belonging. 2020.\n\nSmith, Jo. 2021.\nA long title.'), ['Home and Belonging. 2020.', 'Smith, Jo. 2021. A long title.']);
@@ -25,4 +25,14 @@ test('RIS preserves identifiers, institutional authors and protects record bound
   assert.match(ris, /DO  - 10.1234\/example/);
   assert.match(ris, /UR  - https:\/\/example.org/);
   assert.equal(ris.split('\n').filter(line => line.startsWith('ER  -')).length, 1);
+});
+test('model output in a Markdown fence or with surrounding prose still reconciles; junk yields no items', () => {
+  const entries = [{ id: 'A', source: 'Citation A' }];
+  const object = '{"items":[{"source_id":"A","type":"book","title":"A"}]}';
+  for (const content of [object, '```json\n' + object + '\n```', 'Here is the result:\n```\n' + object + '\n```\nDone.', 'Sure. ' + object]) {
+    assert.equal(reconcileItems(parseModelJSON(content), entries)[0].status, 'ready', content);
+  }
+  for (const content of [undefined, '', 'no json here', '```json\n{"items": [\n```', 'null']) assert.deepEqual(parseModelJSON(content), {});
+  // A bare array is not the requested object; whatever is recovered from it carries no items.
+  assert.equal(reconcileItems(parseModelJSON('[{"source_id":"A","type":"book","title":"A"}]'), entries)[0].status, 'failed');
 });
