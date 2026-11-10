@@ -47,7 +47,10 @@ async function refreshQuota() {
       // Gateway calculated_at is an epoch-second timestamp, not a local decrement.
       const at = new Date(quota.calculated_at * 1000).toLocaleString();
       $('quota-content').replaceChildren(number, text('p', `${money(quota.estimated_used)} used of ${money(quota.limit)}`, 'help'), meter, text('p', `Estimated shared usage. ${window}. Calculated ${at}. Updates may be delayed.`, 'help'));
-    } catch { $('quota-content').replaceChildren(text('p', 'Usage estimate is temporarily unavailable. You can still try a conversion.', 'help')); }
+    } catch (error) {
+      // Say which failure it was, so a broken Gateway path is reportable rather than a vague notice.
+      $('quota-content').replaceChildren(text('p', 'Usage estimate is temporarily unavailable. You can still try a conversion.', 'help'), ...(error.requestId ? [text('p', `${error.code ? `${error.code} · ` : ''}Support reference: ${error.requestId}`, 'help')] : []));
+    }
   } catch (error) {
     $('session-status').replaceChildren(error.signInUrl ? signInLink(error.signInUrl) : text('span', error.status === 401 ? 'Sign in with CUNY to convert' : 'CUNY connection unavailable'));
     $('quota-content').replaceChildren(text('p', 'You can prepare and review your bibliography here. A connected CUNY session is required for AI conversion.', 'help'));
