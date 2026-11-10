@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
@@ -40,4 +40,62 @@ test('enrich returns 200 under workerd with a mocked Open Library', async () => 
     assert.equal(suggestion.url, 'https://openlibrary.org/works/OL1W');
     assert.match(upstream[0], /^https:\/\/openlibrary\.org\/search\.json\?/);
   } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
+});
+
+const compatibilityFlags = JSON.parse((await readFile('wrangler.toml', 'utf8')).match(/^compatibility_flags = (\[.*\])$/m)[1]);
+// The Gateway stand-in is a second workerd Worker (reached through the outbound service binding), so
+// the abort is observed by the runtime's real subrequest cancellation, not by a Node-side callback.
+const gatewayScript = `
+let started = 0, aborted = 0;
+export default { async fetch(request) {
+  const url = new URL(request.url);
+  if (url.pathname === '/__status') return Response.json({ started, aborted });
+  if (url.pathname === '/v1/catalog') return Response.json({ object: 'list', data: [] });
+  started++;
+  await new Promise(resolve => { request.signal.addEventListener('abort', () => { aborted++; resolve(); }); setTimeout(resolve, 1500); });
+  return new Response('late', { status: 503 });
+} };`;
+async function runWorker(flags) {
+  const issuer = await createTestIdentityIssuer();
+  const directory = await mkdtemp(join(tmpdir(), 'bibliography-workerd-'));
+  const outfile = join(directory, 'worker.mjs');
+  await build({ entryPoints: ['server/worker.js'], outfile, bundle: true, format: 'esm', platform: 'neutral', external: ['cloudflare:workers', 'node:*'] });
+  const base = { modules: true, modulesRoot: '/', compatibilityDate: '2026-09-07', compatibilityFlags: flags };
+  const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [
+    { ...base, compatibilityFlags: ['enable_request_signal'], name: 'caller', script: callerScript, serviceBindings: { APP: 'bibliography' } },
+    { ...base, name: 'bibliography', scriptPath: outfile, bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson }, outboundService: 'gateway' },
+    { ...base, name: 'gateway', compatibilityFlags: ['enable_request_signal'], script: gatewayScript },
+  ] }));
+  const headers = async () => ({
+    'content-type': 'application/json', origin: 'https://tools.ailab.gc.cuny.edu',
+    'x-cail-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:bibliography' }),
+    'x-cail-gateway-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:gateway', subject: TEST_SUBJECTS.alice }),
+  });
+  return { runtime, headers, dispose: async () => { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); } };
+}
+// Doorway reaches the tool through a service binding, so the caller Worker aborts its own subrequest
+// while the Gateway call is in flight. (A raw HTTP disconnect on a buffered response is not detected by
+// local workerd, so it cannot stand in for this path.)
+const callerScript = `export default { async fetch(request, env) {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 300);
+  try { return await env.APP.fetch(request, { signal: controller.signal }); } catch (error) { return new Response(error.name, { status: 499 }); }
+} };`;
+async function gatewayAfterClientAbort(flags) {
+  const worker = await runWorker(flags);
+  try {
+    const gateway = await worker.runtime.getWorker('gateway');
+    const response = await worker.runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/api/parse', {
+      method: 'POST', headers: await worker.headers(),
+      body: JSON.stringify({ model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] }),
+    });
+    assert.equal(response.status, 499);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return await (await gateway.fetch('https://gateway/__status')).json();
+  } finally { await worker.dispose(); }
+}
+test('wrangler.toml enables request.signal and an aborted caller aborts the Gateway fetch under workerd', async () => {
+  assert.ok(compatibilityFlags.includes('enable_request_signal'));
+  const status = await gatewayAfterClientAbort(compatibilityFlags);
+  assert.deepEqual(status, { started: 1, aborted: 1 });
 });
