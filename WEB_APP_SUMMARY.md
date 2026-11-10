@@ -1,3 +1,5 @@
+> Historical: this describes the earlier browser-held-key version of the web app, not the current Cloudflare Worker. See `docs/CAIL-INTEGRATION.md`.
+
 # Web Application Conversion - Summary
 
 ## Overview

@@ -1,127 +1,44 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for working in this repository. Read `docs/CAIL-INTEGRATION.md` for the full integration contract and release process.
 
-## Overview
+## What this is
 
-Two implementations of a bibliography converter for Zotero-importable formats:
-- **Python Script** (`omeka_bib_to_zotero.py`) - CLI with OpenAI/OpenRouter support
-- **Web App** (`index.html`, `app.js`, `styles.css`) - Browser-based, OpenRouter only
+- **Web app**: a Cloudflare Worker (`server/worker.js`) serving a static page and a small API under `/bibliography`. It runs inside CUNY AI Lab's Doorway/Gateway platform. No key is held in the browser.
+- **Python CLI**: `omeka_bib_to_zotero.py` is a separate, independent command-line utility with its own providers (OpenAI/OpenRouter), prompts and key handling. It shares no code with the web app; changes to one do not imply changes to the other.
 
-Both support: Omeka web scraping, local files (.txt/.docx/.pdf), LLM parsing, CSL-JSON/RIS output, author ditto expansion, Vision OCR for PDFs, ISBN/OCLC enrichment.
+Test source: `https://italianamericanimprints.omeka.net/actual-bibliography`.
 
-**Test URL**: `https://italianamericanimprints.omeka.net/actual-bibliography` (1,088 entries)
+## Layout
+
+- `index.html`, `styles.css`, `assets/`: static page. `app.js` is the entry and imports `browser.js` (UI), `api.js` (API client, sign-in restart), `models.js` (model menus), `core.js` (entry splitting, CSL-JSON/RIS), `readers.js` (TXT/DOCX/PDF/image readers).
+- `server/worker.js`: API routes (`session`, `quota`, `catalog`, `parse`, `ocr`, `enrich`, `source`, `health`). `server/prompts.js`: model prompts.
+- `scripts/build.mjs`: bundles into gitignored `dist/` (served via the `ASSETS` binding). `wrangler.toml`: Worker config.
+- `tests/*.test.mjs`: Node test runner. `integration/`: optional workerd-to-Gateway harness that needs external Gateway source.
 
 ## Commands
 
-### Web App
 ```bash
-python3 -m http.server 8000  # Access at http://localhost:8000
+npm ci                          # packages are public on npm; no token needed
+npm run check                   # syntax checks, all tests, then build
+npm test                        # tests only
+npm run worker:dev              # build + wrangler dev
+npx wrangler deploy --dry-run   # offline bundle check (never deploy locally; releases go through CI)
+python3 -m unittest tests/test_omeka_cli.py   # Python CLI tests
 ```
 
-### Python Script
-```bash
-# Install dependencies
-pip install requests beautifulsoup4 python-docx pdfplumber Pillow
+## Identity and Gateway flow
 
-# Interactive mode
-python omeka_bib_to_zotero.py
+Doorway handles CUNY login and Admission, then forwards two signed JWTs to the Worker over a service binding: an app assertion (audience `cail:bibliography`) and a Gateway leg (audience `cail:gateway`, same subject). The Worker verifies both with `@cuny-ai-lab/cail-identity`, rejects mismatches, requires `Origin` on writes, and forwards only the Gateway leg to Gateway through `@cuny-ai-lab/cail-client` (single attempt, no app-key fallback). Gateway owns model routing, accounting and quota; the Worker keeps no spending ledger. A `401` with `authentication_required` or `session_invalid` makes the page restart sign-in by navigating to the tool's launch path.
 
-# Basic usage (no LLM)
-python omeka_bib_to_zotero.py --file bibliography.txt --out output.json
+## Models
 
-# With LLM parsing
-OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py --use-llm openrouter --model openai/gpt-4o-mini --out output.json
+Model IDs are canonical and prefix-free Gateway IDs: `gpt-oss-120b` (default), `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`. Provider-prefixed or `auto/` IDs are rejected. The page builds its menus from the Gateway catalog (text-generation rows; vision rows for OCR) and falls back to these three. Do not change which models are offered by default, add `max_tokens`, or add compatibility flags to `wrangler.toml` without the owner's decision.
 
-# With ISBN enrichment
-python omeka_bib_to_zotero.py --file bibliography.txt --enrich-isbn --out output.json
+## Constraints
 
-# Vision OCR for problematic PDFs
-OPENROUTER_API_KEY=... python omeka_bib_to_zotero.py --file scan.pdf --vision-ocr --out output.json
-
-# Test with limited entries
-python omeka_bib_to_zotero.py --max 10 --out test.json
-
-# Verify entry count (should be 1,088)
-python -c "from omeka_bib_to_zotero import fetch_page_text, split_entries; print(len(split_entries(fetch_page_text('https://italianamericanimprints.omeka.net/actual-bibliography'))))"
-```
-
-## Critical Constraints
-
-**DO NOT change without asking:**
-1. **Default model**: `openai/gpt-oss-120b` (very cheap)
-2. **Model list**: User explicitly specified each model in dropdown
-3. **CUNY blue theme**: `--primary-blue: #003DA5`, `--secondary-blue: #002D72`
-4. **License**: GNU GPL v3 (not Apache 2.0)
-5. **Footer credits**: Stefano Morello name and GitHub link
-
-## Architecture
-
-### Entry Splitting
-- **Web app** (`splitEntries`): Dual-format detection
-  - If text contains `\n\n` (blank lines): splits on blank lines
-  - If no blank lines: splits on single newlines
-- **Python** (`split_entries`): Triple-newline separators only
-- Debug tool: `debug_split_test.html`
-
-### LLM Integration
-- Models must support `response_format: {"type": "json_object"}`
-- Working models: GPT OSS 120B, Gemini 2.5 Flash, Claude Sonnet 4.5, GPT-4o, Qwen 3 235B
-- Batch size: 25 entries per request
-- Timeout: 180 seconds, retry: 3 attempts with exponential backoff
-- System prompt enforces JSON-only output (no commentary)
-
-### ISBN Enrichment (`enrichItemsWithISBN` / `enrich_items_with_isbn`)
-- Searches Open Library API first, Google Books as fallback
-- Pre-1970 books: searches for OCLC/LCCN instead (ISBN didn't exist)
-- Fills missing fields only (doesn't overwrite existing data):
-  - `ISBN`, `OCLC`, `call-number` (LCCN)
-  - `publisher`, `publisher-place`, `number-of-pages`
-  - `issued` (year), `keyword` (subjects), `abstract`
-- 200ms delay between API calls for rate limiting
-- Web app uses CORS proxy for Open Library
-
-### Vision OCR (`extractPdfWithVision` / `read_pdf_with_vision`)
-- For PDFs with font encoding issues (text appears garbled like "zffff" instead of "1985")
-- Renders PDF pages to images, sends to vision model via OpenRouter
-- Available models: `qwen/qwen3-vl-235b-a22b-instruct` (recommended), `google/gemini-2.5-flash`, `openai/gpt-4o`, `anthropic/claude-sonnet-4`
-- Web app: checkbox + model selector appears when PDF selected
-- Python: `--vision-ocr` flag, `--vision-model` option
-
-### File Reading
-- `.txt`: Plain text (FileReader API / UTF-8)
-- `.docx`: mammoth.js (web) / python-docx (Python)
-- `.pdf`: PDF.js (web) / pdfplumber (Python)
-
-### Output Formats
-- **CSL-JSON**: Native Zotero format (recommended)
-- **RIS**: Alternative citation format
-- Failed entries saved to `failed_entries.txt`
-
-## Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| LLM returns commentary instead of JSON | Model may not support `response_format`; switch to Claude Sonnet 4.5 or GPT-4o |
-| CORS errors in web app | Enable "Use CORS proxy" checkbox or install browser extension |
-| Wrong entry count | Check newline format: web app (dual detection), Python (triple newlines) |
-| PDF text garbled | Enable Vision OCR checkbox (web) or `--vision-ocr` flag (Python) |
-| Model not working | Verify model supports `response_format` via OpenRouter API |
-
-## Web App UI Structure
-
-- **Step 1**: Input source (URL/file/paste), CORS proxy checkbox, Vision OCR option for PDFs
-- **Step 2**: Output format (CSL-JSON/RIS)
-- **Step 3**: AI model config (model dropdown, API key with localStorage option, batch size)
-- **Step 4**: Output options (test mode, ISBN enrichment, filename)
-- **Modals**: CORS help, About section
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `omeka_bib_to_zotero.py` | Python CLI (~900 lines) |
-| `index.html` | Web app UI structure |
-| `app.js` | Web app logic (~1400 lines) |
-| `styles.css` | CUNY blue theme |
-| `debug_split_test.html` | Entry splitting debugger |
+- License is GNU GPL v3; keep the footer credit and GitHub link.
+- Keep the CUNY blue theme (`--primary-blue: #003DA5`, `--secondary-blue: #002D72`).
+- Tests stub every upstream; never call a model or paid API from tests or local runs.
+- Never commit secrets or `.env`. Do not push or deploy from a local session.
+- `WEB_APP_*.md` and other top-level summary docs are historical notes from the earlier browser-key version.

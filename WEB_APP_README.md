@@ -1,3 +1,5 @@
+> Historical: this describes the earlier browser-held-key version of the web app, not the current Cloudflare Worker. See `docs/CAIL-INTEGRATION.md`.
+
 # Bibliography to Zotero Converter - Web Application
 
 A browser-based tool that converts bibliographic entries from Omeka Classic websites or local files into Zotero-importable formats (CSL-JSON or RIS).

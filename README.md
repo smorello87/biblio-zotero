@@ -2,6 +2,8 @@
 
 A Python utility that converts bibliographic entries from Omeka Classic websites or local files into Zotero-importable formats (CSL-JSON or RIS).
 
+> This README documents the standalone command-line tool, which uses your own OpenAI or OpenRouter key. The hosted web app is a separate Cloudflare Worker that signs in through CUNY AI Lab and holds no key in the browser; it uses prefix-free Gateway model IDs such as `gpt-oss-120b`. See `docs/CAIL-INTEGRATION.md`.
+
 ## Features
 
 - **Multiple Input Sources**:
