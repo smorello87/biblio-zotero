@@ -311,3 +311,18 @@ test('an exhausted output budget is its own error, with and without content', as
   const { response } = await modelCall([], 'gpt-oss-120b', { choices: [{ message: { content: '' }, finish_reason: 'stop' }] });
   assert.equal((await response.json()).error.code, 'invalid_model_response');
 });
+test('source import cancels unusable bodies and reports a redirect without Location', async () => {
+  const source = async (...responses) => {
+    const cancelled = [];
+    const queue = responses.map(([status, headers]) => () => new Response(new ReadableStream({ cancel() { cancelled.push(status); } }), { status, headers }));
+    const handle = createHandler({ fetchImpl: async () => queue.shift()() });
+    const response = await handle(await request('source', { url: 'https://italianamericanimprints.omeka.net/actual-bibliography' }), env);
+    return { status: response.status, code: (await response.json()).error?.code, cancelled };
+  };
+  assert.deepEqual(await source([404, {}]), { status: 502, code: 'source_unavailable', cancelled: [404] });
+  assert.deepEqual(await source([200, { 'content-type': 'application/pdf' }]), { status: 400, code: 'unsupported_source', cancelled: [200] });
+  assert.deepEqual(await source([302, {}]), { status: 502, code: 'source_redirect_invalid', cancelled: [302] });
+  assert.deepEqual(await source([301, { location: 'https://evil.example/' }]), { status: 400, code: 'unsupported_source', cancelled: [301] });
+  const upper = createHandler({ fetchImpl: async () => new Response('<p>x</p>', { headers: { 'content-type': 'TEXT/HTML; charset=utf-8' } }) });
+  assert.equal((await (await upper(await request('source', { url: 'https://italianamericanimprints.omeka.net/x' }), env)).json()).html, true);
+});

@@ -206,14 +206,14 @@ export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, cat
           if ([301, 302, 303, 307, 308].includes(response.status)) {
             const location = response.headers.get('location');
             await response.body?.cancel();
-            if (!location) break;
-            target = new URL(location, target);
+            if (!location) throw new AppError('source_redirect_invalid', 'The bibliography website sent an incomplete redirect.', 502);
+            try { target = new URL(location, target); } catch { throw new AppError('source_redirect_invalid', 'The bibliography website sent an incomplete redirect.', 502); }
             continue;
           }
-          if (!response.ok) throw new AppError('source_unavailable', 'The bibliography website could not be loaded.', 502);
+          if (!response.ok) { await response.body?.cancel(); throw new AppError('source_unavailable', 'The bibliography website could not be loaded.', 502); }
           const contentType = response.headers.get('content-type') || '';
-          if (!/^(text\/html|text\/plain)/i.test(contentType)) throw new AppError('unsupported_source', 'This URL does not contain a webpage or text bibliography.');
-          return json({ text: await boundedText(response, 2 * 1024 * 1024), html: contentType.includes('text/html') });
+          if (!/^(text\/html|text\/plain)/i.test(contentType)) { await response.body?.cancel(); throw new AppError('unsupported_source', 'This URL does not contain a webpage or text bibliography.'); }
+          return json({ text: await boundedText(response, 2 * 1024 * 1024), html: /^text\/html/i.test(contentType) });
         }
         throw new AppError('source_unavailable', 'The website redirected too many times.', 502);
       }
