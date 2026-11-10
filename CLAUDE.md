@@ -5,7 +5,7 @@ Guidance for working in this repository. Read `docs/CAIL-INTEGRATION.md` for the
 ## What this is
 
 - **Web app**: a Cloudflare Worker (`server/worker.js`) serving a static page and a small API under `/bibliography`. It runs inside CUNY AI Lab's Doorway/Gateway platform. No key is held in the browser.
-- **Python CLI**: `omeka_bib_to_zotero.py` is a separate, independent command-line utility with its own providers (OpenAI/OpenRouter), prompts and key handling. It shares no code with the web app; changes to one do not imply changes to the other.
+- **Python CLI**: `omeka_bib_to_zotero.py` is a separate, independent command-line utility with its own providers (OpenAI, OpenRouter, and the CAIL Gateway via `--provider cail`), prompts and key handling. It shares no code with the web app; changes to one do not imply changes to the other.
 
 Test source: `https://italianamericanimprints.omeka.net/actual-bibliography`.
 
@@ -14,7 +14,8 @@ Test source: `https://italianamericanimprints.omeka.net/actual-bibliography`.
 - `index.html`, `styles.css`, `assets/`: static page. `app.js` is the entry and imports `browser.js` (UI), `api.js` (API client, sign-in restart), `models.js` (model menus), `core.js` (entry splitting, CSL-JSON/RIS), `readers.js` (TXT/DOCX/PDF/image readers).
 - `server/worker.js`: API routes (`session`, `quota`, `catalog`, `parse`, `ocr`, `enrich`, `source`, `health`). `server/prompts.js`: model prompts.
 - `scripts/build.mjs`: bundles into gitignored `dist/` (served via the `ASSETS` binding). `wrangler.toml`: Worker config.
-- `tests/*.test.mjs`: Node test runner. `integration/`: optional workerd-to-Gateway harness that needs external Gateway source.
+- `docs/DEPLOY-CHECKLIST.md`: secrets, pinned config, probes and the Doorway mount changes.
+- `tests/*.test.mjs`: Node test runner (`workerd.test.mjs` runs the Worker in real workerd via Miniflare). `integration/`: optional workerd-to-Gateway harness that needs external Gateway source.
 
 ## Commands
 
@@ -33,7 +34,7 @@ Doorway handles CUNY login and Admission, then forwards two signed JWTs to the W
 
 ## Models
 
-Model IDs are canonical and prefix-free Gateway IDs: `gpt-oss-120b` (default), `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`. Provider-prefixed or `auto/` IDs are rejected. The page builds its menus from the Gateway catalog (text-generation rows; vision rows for OCR) and falls back to these three. Do not change which models are offered by default, add `max_tokens`, or add compatibility flags to `wrangler.toml` without the owner's decision.
+Model IDs are canonical and prefix-free Gateway IDs: `gpt-oss-120b` (default), `gemma-4-26b-a4b-it`, `qwen3-vl-235b-a22b-instruct`. Provider-prefixed or `auto/` IDs are rejected. The page builds its menus from the Gateway catalog (text-generation rows; vision rows for OCR) and falls back to these three. Parse and OCR requests send `max_tokens: 16000` for reasoning models (and when the catalog is unavailable); an exhausted budget is reported as `model_output_limit`. `wrangler.toml` enables `enable_request_signal` so a caller abort reaches the Gateway call. Do not change which models are offered by default or the compatibility date/flags without the owner's decision.
 
 ## Constraints
 

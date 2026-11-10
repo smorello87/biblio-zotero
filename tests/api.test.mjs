@@ -49,3 +49,12 @@ test('unusable model output stays retryable even though the Worker sends x-shoul
   const { api } = setup(() => failure(429, 'quota_exceeded', { 'x-should-retry': 'false' }));
   await assert.rejects(api('parse', {}), error => error.shouldRetry === false);
 });
+test('Doorway launch path is used when the 401 names one, and only for a same-origin /launch/ path', async () => {
+  const withLaunch = launch => () => new Response(JSON.stringify({ error: { code: 'authentication_required', launch } }), { status: 401, headers: { 'content-type': 'application/json' } });
+  const good = setup(withLaunch('/launch/bibliography'));
+  await assert.rejects(good.api('quota'));
+  assert.deepEqual(good.assigned, ['https://tools.ailab.gc.cuny.edu/launch/bibliography']);
+  const bad = setup(withLaunch('//evil.example/launch/x'));
+  await assert.rejects(bad.api('quota'));
+  assert.deepEqual(bad.assigned, ['https://tools.ailab.gc.cuny.edu/bibliography/']);
+});

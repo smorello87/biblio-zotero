@@ -9,11 +9,11 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), location, b
   let restarted = false;
   // A lost CAIL session needs a full-page navigation to the tool's launch path so sign-in restarts.
   // Guarded once per page and once per minute across reloads so a failing sign-in cannot loop.
-  function restartSignIn() {
+  function restartSignIn(launch) {
     if (restarted) return false;
     try { const last = Number(storage?.getItem(RESTART_KEY)); if (last && now() - last < 60000) return false; storage?.setItem(RESTART_KEY, String(now())); } catch { /* storage may be unavailable */ }
     restarted = true;
-    location.assign(new URL('./', location.href));
+    location.assign(new URL(/^\/launch\/[a-z0-9-]+$/.test(launch) ? launch : './', location.href));
     return true;
   }
   return async function api(path, body, signal) {
@@ -30,7 +30,7 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), location, b
       const retryAfter = Number(response.headers.get('retry-after'));
       const error = new Error(result.error?.message || 'The CAIL service is unavailable.');
       Object.assign(error, { status: response.status, code: result.error?.code, requestId: result.error?.request_id || requestId, shouldRetry: response.headers.get('x-should-retry') === 'true' || RETRYABLE_CODES.has(result.error?.code), ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { retryAfter } : {}) });
-      if (response.status === 401 && LOST_SESSION.has(error.code)) error.signInRestarted = restartSignIn();
+      if (response.status === 401 && LOST_SESSION.has(error.code)) error.signInRestarted = restartSignIn(result.error?.launch);
       throw error;
     }
     return result;
