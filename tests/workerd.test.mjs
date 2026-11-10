@@ -200,17 +200,19 @@ test('under workerd the Google key travels only as a header to Google, and the C
     const text = await response.text();
     assert.equal(response.status, 200, text);
     assert.ok(!text.includes(KEY));
-    return { body: JSON.parse(text), cache: response.headers.get('x-catalog-cache') };
+    assert.equal(response.headers.get('x-catalog-cache'), null, 'cache state is never exposed');
+    return { body: JSON.parse(text) };
   };
   try {
     const fresh = await lookup('first');
     assert.equal(fresh.body.status, 'matched');
-    assert.equal(fresh.cache, 'memory=0, edge=0, miss=3');
     assert.deepEqual(calls.map(call => [call.host, call.key]).sort(), [['api.crossref.org', null], ['openlibrary.org', null], ['www.googleapis.com', KEY]]);
     assert.ok(calls.every(call => !call.url.includes(KEY)));
-    assert.equal((await lookup('first')).cache, 'memory=3, edge=0, miss=0');
+    // Same isolate again: no upstream request (in-isolate cache).
+    assert.deepEqual((await lookup('first')).body, fresh.body);
+    assert.equal(calls.length, 3);
+    // Another isolate whose network always fails still answers: every reply came from the Cache API.
     const other = await lookup('second');
-    assert.equal(other.cache, 'memory=0, edge=3, miss=0');
-    assert.equal(other.body.status, 'matched');
+    assert.deepEqual(other.body, fresh.body);
   } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
 });

@@ -209,7 +209,9 @@ function createCatalogCache({ now = Date.now, edge = () => globalThis.caches?.de
 // fetchImpl reaches the public web (the catalogs above, enabled bibliography sites). Gateway calls go
 // through env.GATEWAY, a service binding to the Gateway Worker (cail-model-api); tests may pass
 // gatewayFetch, or a single fetchImpl for both.
-export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS, cacheOptions } = {}) {
+// onCatalogCache: test-only hook receiving per-lookup cache counts; cache state is never put in a
+// response, because the cache is shared and would tell one person what another looked up.
+export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS, cacheOptions, onCatalogCache } = {}) {
   const publicFetch = fetchImpl ?? ((input, init) => fetch(input, init));
   const catalogFetch = createCatalogFetch(publicFetch);
   const lookupCache = createCatalogCache(cacheOptions);
@@ -293,8 +295,8 @@ export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_M
         const googleKey = !configured ? undefined : GOOGLE_KEY.test(configured) ? configured : null;
         const counts = { memory: 0, edge: 0, miss: 0 };
         const result = await runLookup(query, (source, address, limit) => cachedCatalogFetch(source, address, limit, allowed, signal, googleKey, counts), { pause: ms => new Promise(resolve => setTimeout(resolve, ms)) });
-        // Which cache layer answered (no data, no key): lets a release check confirm the Cache API works here.
-        return json(result, 200, { 'x-catalog-cache': `memory=${counts.memory}, edge=${counts.edge}, miss=${counts.miss}` });
+        onCatalogCache?.({ ...counts });
+        return json(result);
       }
       if (['/api/parse', '/api/ocr'].includes(path) && request.method === 'POST') {
         const body = await bodyJSON(request);

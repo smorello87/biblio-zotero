@@ -82,20 +82,26 @@ test('a malformed key is reported as a configuration problem and Google is not c
 test('catalog replies are cached for everyone: a day for records, ten minutes for nothing found', async () => {
   let clock = 1_000_000;
   const { calls, fetchImpl } = upstream();
-  const handle = createHandler({ fetchImpl, cacheOptions: { now: () => clock, edge: () => undefined } });
+  const seen = [];
+  const handle = createHandler({ fetchImpl, cacheOptions: { now: () => clock, edge: () => undefined }, onCatalogCache: counts => seen.push(`memory=${counts.memory}, edge=${counts.edge}, miss=${counts.miss}`) });
   const first = await run(handle, book, { GOOGLE_BOOKS_API_KEY: KEY });
-  assert.equal(first.headers.get('x-catalog-cache'), 'memory=0, edge=0, miss=3');
+  assert.equal(seen.at(-1), 'memory=0, edge=0, miss=3');
+  // The cache is shared, so its state is never in a response (it would reveal others' lookups).
+  assert.deepEqual([...first.headers.keys()].filter(name => /cache/i.test(name) && name !== 'cache-control'), []);
   const upstreamCalls = calls.length;
   // Another person, same entry: served from cache, no upstream request, same answer.
   const second = await run(handle, book, { GOOGLE_BOOKS_API_KEY: KEY }, TEST_SUBJECTS.bob);
-  assert.equal(second.headers.get('x-catalog-cache'), 'memory=3, edge=0, miss=0');
+  assert.equal(seen.at(-1), 'memory=3, edge=0, miss=0');
+  assert.equal(second.text, first.text, 'a cached reply is byte-identical');
   assert.equal(calls.length, upstreamCalls);
   assert.equal(JSON.parse(second.text).suggestion.url, JSON.parse(first.text).suggestion.url);
   // After 11 minutes the empty Open Library and Crossref replies expire; the Google record does not.
   clock += 11 * 60 * 1000;
-  assert.equal((await run(handle, book, { GOOGLE_BOOKS_API_KEY: KEY })).headers.get('x-catalog-cache'), 'memory=1, edge=0, miss=2');
+  await run(handle, book, { GOOGLE_BOOKS_API_KEY: KEY });
+  assert.equal(seen.at(-1), 'memory=1, edge=0, miss=2');
   clock += 24 * 60 * 60 * 1000;
-  assert.equal((await run(handle, book, { GOOGLE_BOOKS_API_KEY: KEY })).headers.get('x-catalog-cache'), 'memory=0, edge=0, miss=3');
+  await run(handle, book, { GOOGLE_BOOKS_API_KEY: KEY });
+  assert.equal(seen.at(-1), 'memory=0, edge=0, miss=3');
 });
 
 test('refusals, server errors and timeouts are never cached', async () => {

@@ -87,8 +87,8 @@ to an address a person supplies:
   refusals, server errors or timeouts. An in-isolate LRU always applies; the Cache API
   (`caches.default`) is used as well. Cloudflare documents the Cache API as working for
   Workers on custom domains; whether it stores anything for a Worker reached only through
-  a service binding is unverified. The `x-catalog-cache` response header on
-  `/api/enrich` (`memory=…, edge=…, miss=…`) shows which layer answered.
+  a service binding is unverified. Cache state is never returned to the page: the
+  cache is shared, so it would tell one person what another looked up recently.
 
 ## Verification boundary
 
