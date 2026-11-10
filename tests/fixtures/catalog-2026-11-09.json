@@ -1,0 +1,1087 @@
+{
+"object": "list",
+"data": [
+{
+"id": "gemma-3-12b-it",
+"object": "model",
+"name": "Gemma 3 12B IT",
+"recommended": false,
+"tier": "advanced",
+"order": 14,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"structured-output"
+],
+"context_length": 131072
+},
+{
+"id": "gemma-3-27b-it",
+"object": "model",
+"name": "Gemma 3 27B IT",
+"recommended": false,
+"tier": "advanced",
+"order": 15,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"structured-output"
+],
+"context_length": 131072
+},
+{
+"id": "gemma-3-4b-it",
+"object": "model",
+"name": "Gemma 3 4B IT",
+"recommended": false,
+"tier": "advanced",
+"order": 16,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision"
+],
+"context_length": 131072
+},
+{
+"id": "magistral-small-2509",
+"object": "model",
+"name": "Magistral Small 1.2",
+"recommended": false,
+"tier": "advanced",
+"order": 40,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 128000
+},
+{
+"id": "voxtral-mini-3b-2507",
+"object": "model",
+"name": "Voxtral Mini 3B 2507",
+"recommended": false,
+"tier": "advanced",
+"order": 61,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output"
+],
+"context_length": 32768
+},
+{
+"id": "voxtral-small-24b-2507",
+"object": "model",
+"name": "Voxtral Small 24B 2507",
+"recommended": false,
+"tier": "advanced",
+"order": 62,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output"
+],
+"context_length": 32768
+},
+{
+"id": "kimi-k2.5",
+"object": "model",
+"name": "Kimi K2.5",
+"recommended": false,
+"tier": "advanced",
+"order": 28,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 262144
+},
+{
+"id": "gpt-oss-120b",
+"object": "model",
+"name": "GPT OSS 120B",
+"recommended": true,
+"tier": "recommended",
+"order": 4,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"structured-output"
+],
+"context_length": 128000
+},
+{
+"id": "gpt-oss-20b",
+"object": "model",
+"name": "GPT OSS 20B",
+"recommended": false,
+"tier": "advanced",
+"order": 24,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"structured-output"
+],
+"context_length": 128000
+},
+{
+"id": "gpt-oss-safeguard-120b",
+"object": "model",
+"name": "GPT OSS Safeguard 120B",
+"recommended": false,
+"tier": "advanced",
+"order": 25,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 128000
+},
+{
+"id": "gpt-oss-safeguard-20b",
+"object": "model",
+"name": "GPT OSS Safeguard 20B",
+"recommended": false,
+"tier": "advanced",
+"order": 26,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 128000
+},
+{
+"id": "qwen3-coder-next",
+"object": "model",
+"name": "Qwen3 Coder Next",
+"recommended": false,
+"tier": "advanced",
+"order": 57,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output"
+],
+"context_length": 262144
+},
+{
+"id": "glm-4.7",
+"object": "model",
+"name": "GLM-4.7",
+"recommended": false,
+"tier": "advanced",
+"order": 19,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 202752
+},
+{
+"id": "glm-4.7-flash",
+"object": "model",
+"name": "GLM-4.7-Flash",
+"recommended": false,
+"tier": "advanced",
+"order": 20,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"structured-output"
+],
+"context_length": 131072
+},
+{
+"id": "glm-5",
+"object": "model",
+"name": "GLM-5",
+"recommended": false,
+"tier": "advanced",
+"order": 21,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 202752
+},
+{
+"id": "kimi-k3",
+"object": "model",
+"name": "Kimi K3",
+"recommended": false,
+"tier": "advanced",
+"order": 31,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-runtime",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 1048576
+},
+{
+"id": "glm-5.3",
+"object": "model",
+"name": "Glm 5.3",
+"recommended": true,
+"tier": "recommended",
+"order": 2,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning"
+],
+"context_length": 1048576
+},
+{
+"id": "gemma-sea-lion-v4-27b-it",
+"object": "model",
+"name": "Gemma Sea Lion V4 27B It",
+"recommended": false,
+"tier": "advanced",
+"order": 18,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 128000
+},
+{
+"id": "flux-1-schnell",
+"object": "model",
+"name": "FLUX.1 [schnell]",
+"recommended": false,
+"tier": "advanced",
+"order": 12,
+"status": "active",
+"modality": "image",
+"provider": "workers-ai",
+"capabilities": [
+"text-to-image"
+],
+"context_length": null
+},
+{
+"id": "deepseek-v4-flash-0731",
+"object": "model",
+"name": "DeepSeek V4 Flash 0731",
+"recommended": false,
+"tier": "advanced",
+"order": 9,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning"
+],
+"context_length": 1048576
+},
+{
+"id": "deepseek-v4-pro-0813",
+"object": "model",
+"name": "DeepSeek V4 Pro 0813",
+"recommended": false,
+"tier": "advanced",
+"order": 10,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning"
+],
+"context_length": 1048576
+},
+{
+"id": "deepseek-v4.1-flash-1017",
+"object": "model",
+"name": "DeepSeek V4.1 Flash 1017",
+"recommended": true,
+"tier": "recommended",
+"order": 1,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"vision"
+],
+"context_length": 1048576
+},
+{
+"id": "gemma-4-26b-a4b-it",
+"object": "model",
+"name": "Gemma 4 26B A4B IT",
+"recommended": true,
+"tier": "recommended",
+"order": 5,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"vision"
+],
+"context_length": 256000
+},
+{
+"id": "llama-3.2-11b-vision-instruct",
+"object": "model",
+"name": "Llama 3.2 11B Vision Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 34,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"vision"
+],
+"context_length": 128000
+},
+{
+"id": "llama-guard-3-8b",
+"object": "model",
+"name": "Llama Guard 3 8B",
+"recommended": false,
+"tier": "advanced",
+"order": 39,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 131072
+},
+{
+"id": "kimi-k2.6",
+"object": "model",
+"name": "Kimi K2.6",
+"recommended": false,
+"tier": "advanced",
+"order": 29,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"vision"
+],
+"context_length": 262144
+},
+{
+"id": "kimi-k2.7-code",
+"object": "model",
+"name": "Kimi K2.7 Code",
+"recommended": false,
+"tier": "advanced",
+"order": 30,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"vision"
+],
+"context_length": 262144
+},
+{
+"id": "qwen2.5-coder-32b-instruct",
+"object": "model",
+"name": "Qwen2.5 Coder 32B Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 55,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 32768
+},
+{
+"id": "qwen3.8-27b",
+"object": "model",
+"name": "Qwen3.8 27B",
+"recommended": true,
+"tier": "recommended",
+"order": 3,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"vision"
+],
+"context_length": 262144
+},
+{
+"id": "qwq-32b",
+"object": "model",
+"name": "Qwq 32B",
+"recommended": false,
+"tier": "advanced",
+"order": 59,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"reasoning"
+],
+"context_length": 24000
+},
+{
+"id": "glm-5.2",
+"object": "model",
+"name": "Glm 5.2",
+"recommended": false,
+"tier": "advanced",
+"order": 22,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning"
+],
+"context_length": 262144
+},
+{
+"id": "glm-5.3-flash",
+"object": "model",
+"name": "Glm 5.3 Flash",
+"recommended": false,
+"tier": "advanced",
+"order": 23,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning",
+"vision"
+],
+"context_length": 1048576
+},
+{
+"id": "deepseek-r1-distill-qwen-32b",
+"object": "model",
+"name": "Deepseek R1 Distill Qwen 32B",
+"recommended": false,
+"tier": "advanced",
+"order": 8,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"reasoning"
+],
+"context_length": 80000
+},
+{
+"id": "gemma-2b-it-lora",
+"object": "model",
+"name": "Gemma 2B IT LoRA",
+"recommended": false,
+"tier": "advanced",
+"order": 13,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 8192
+},
+{
+"id": "gemma-7b-it-lora",
+"object": "model",
+"name": "Gemma 7B IT LoRA",
+"recommended": false,
+"tier": "advanced",
+"order": 17,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 3500
+},
+{
+"id": "granite-4.0-h-micro",
+"object": "model",
+"name": "Granite 4.0 H Micro",
+"recommended": false,
+"tier": "advanced",
+"order": 27,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling"
+],
+"context_length": 131000
+},
+{
+"id": "llama-2-7b-chat-hf-lora",
+"object": "model",
+"name": "Llama 2 7B Chat Hf LoRA",
+"recommended": false,
+"tier": "advanced",
+"order": 32,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 8192
+},
+{
+"id": "llama-3.1-8b-instruct-fp8",
+"object": "model",
+"name": "Llama 3.1 8B Instruct fp8",
+"recommended": false,
+"tier": "advanced",
+"order": 33,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 32000
+},
+{
+"id": "llama-3.2-1b-instruct",
+"object": "model",
+"name": "Llama 3.2 1B Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 35,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 60000
+},
+{
+"id": "llama-3.2-3b-instruct",
+"object": "model",
+"name": "Llama 3.2 3B Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 36,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 80000
+},
+{
+"id": "llama-3.3-70b-instruct-fp8-fast",
+"object": "model",
+"name": "Llama 3.3 70B Instruct fp8 Fast",
+"recommended": false,
+"tier": "advanced",
+"order": 37,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling"
+],
+"context_length": 24000
+},
+{
+"id": "llama-4-scout-17b-16e-instruct",
+"object": "model",
+"name": "Llama 4 Scout 17B 16E Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 38,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"vision"
+],
+"context_length": 131000
+},
+{
+"id": "mistral-7b-instruct-v0.2-lora",
+"object": "model",
+"name": "Mistral 7B Instruct V0.2 LoRA",
+"recommended": false,
+"tier": "advanced",
+"order": 48,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation"
+],
+"context_length": 15000
+},
+{
+"id": "mistral-small-3.1-24b-instruct",
+"object": "model",
+"name": "Mistral Small 3.1 24B Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 49,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"vision"
+],
+"context_length": 128000
+},
+{
+"id": "melotts",
+"object": "model",
+"name": "Melotts",
+"recommended": false,
+"tier": "advanced",
+"order": 41,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-to-speech"
+],
+"context_length": null
+},
+{
+"id": "nemotron-3-120b-a12b",
+"object": "model",
+"name": "Nemotron 3 Super 120B",
+"recommended": false,
+"tier": "advanced",
+"order": 50,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning"
+],
+"context_length": 256000
+},
+{
+"id": "whisper",
+"object": "model",
+"name": "Whisper",
+"recommended": false,
+"tier": "advanced",
+"order": 63,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"automatic-speech-recognition"
+],
+"context_length": null
+},
+{
+"id": "whisper-large-v3-turbo",
+"object": "model",
+"name": "Whisper Large V3 Turbo",
+"recommended": true,
+"tier": "recommended",
+"order": 7,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"automatic-speech-recognition"
+],
+"context_length": null
+},
+{
+"id": "whisper-tiny-en",
+"object": "model",
+"name": "Whisper Tiny EN",
+"recommended": false,
+"tier": "advanced",
+"order": 64,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"automatic-speech-recognition"
+],
+"context_length": null
+},
+{
+"id": "qwen3-30b-a3b-fp8",
+"object": "model",
+"name": "Qwen3 30B A3b fp8",
+"recommended": false,
+"tier": "advanced",
+"order": 56,
+"status": "active",
+"modality": "text",
+"provider": "workers-ai",
+"capabilities": [
+"text-generation",
+"function-calling",
+"reasoning"
+],
+"context_length": 32768
+},
+{
+"id": "v3.2",
+"object": "model",
+"name": "DeepSeek V3.2",
+"recommended": false,
+"tier": "advanced",
+"order": 60,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 163840
+},
+{
+"id": "minimax-m2",
+"object": "model",
+"name": "MiniMax-M2",
+"recommended": false,
+"tier": "advanced",
+"order": 42,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 204608
+},
+{
+"id": "minimax-m2.1",
+"object": "model",
+"name": "MiniMax-M2.1",
+"recommended": false,
+"tier": "advanced",
+"order": 43,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 196608
+},
+{
+"id": "minimax-m2.5",
+"object": "model",
+"name": "MiniMax-M2.5",
+"recommended": false,
+"tier": "advanced",
+"order": 44,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 196608
+},
+{
+"id": "devstral-2-123b",
+"object": "model",
+"name": "Devstral 2 123B",
+"recommended": false,
+"tier": "advanced",
+"order": 11,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output"
+],
+"context_length": 262144
+},
+{
+"id": "ministral-3-14b-instruct",
+"object": "model",
+"name": "Ministral 14B 3.0",
+"recommended": false,
+"tier": "advanced",
+"order": 45,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output"
+],
+"context_length": 128000
+},
+{
+"id": "ministral-3-3b-instruct",
+"object": "model",
+"name": "Ministral 3 3B",
+"recommended": false,
+"tier": "advanced",
+"order": 46,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output"
+],
+"context_length": 256000
+},
+{
+"id": "ministral-3-8b-instruct",
+"object": "model",
+"name": "Ministral 3 8B",
+"recommended": false,
+"tier": "advanced",
+"order": 47,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output"
+],
+"context_length": 128000
+},
+{
+"id": "mistral-large-3-675b-instruct",
+"object": "model",
+"name": "Mistral Large 3",
+"recommended": true,
+"tier": "recommended",
+"order": 6,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output"
+],
+"context_length": 262144
+},
+{
+"id": "nemotron-nano-12b-v2",
+"object": "model",
+"name": "NVIDIA Nemotron Nano 12B v2 VL BF16",
+"recommended": false,
+"tier": "advanced",
+"order": 51,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling",
+"structured-output"
+],
+"context_length": 131072
+},
+{
+"id": "nemotron-nano-3-30b",
+"object": "model",
+"name": "NVIDIA Nemotron Nano 3 30B",
+"recommended": false,
+"tier": "advanced",
+"order": 52,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 262144
+},
+{
+"id": "nemotron-nano-9b-v2",
+"object": "model",
+"name": "NVIDIA Nemotron Nano 9B v2",
+"recommended": false,
+"tier": "advanced",
+"order": 53,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output"
+],
+"context_length": 131072
+},
+{
+"id": "nemotron-super-3-120b",
+"object": "model",
+"name": "NVIDIA Nemotron 3 Super 120B A12B",
+"recommended": false,
+"tier": "advanced",
+"order": 54,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"function-calling",
+"structured-output",
+"reasoning"
+],
+"context_length": 262144
+},
+{
+"id": "qwen3-vl-235b-a22b-instruct",
+"object": "model",
+"name": "Qwen3 VL 235B A22B Instruct",
+"recommended": false,
+"tier": "advanced",
+"order": 58,
+"status": "active",
+"modality": "text",
+"provider": "bedrock-mantle",
+"capabilities": [
+"text-generation",
+"vision",
+"function-calling"
+],
+"context_length": 262144
+}
+]
+}

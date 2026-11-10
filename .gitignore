@@ -221,3 +221,4 @@ node_modules/
 .dev.vars
 !package.json
 !package-lock.json
+!tests/fixtures/*.json
