@@ -41,3 +41,11 @@ test('retry advice is exposed from x-should-retry and retry-after', async () => 
   const none = setup(() => failure(429, 'quota_exceeded', { 'x-should-retry': 'false' }));
   await assert.rejects(none.api('parse', {}), error => error.shouldRetry === false && error.retryAfter === undefined);
 });
+test('unusable model output stays retryable even though the Worker sends x-should-retry: false', async () => {
+  for (const code of ['invalid_model_response', 'model_output_limit']) {
+    const { api } = setup(() => failure(502, code, { 'x-should-retry': 'false' }));
+    await assert.rejects(api('parse', {}), error => error.shouldRetry === true);
+  }
+  const { api } = setup(() => failure(429, 'quota_exceeded', { 'x-should-retry': 'false' }));
+  await assert.rejects(api('parse', {}), error => error.shouldRetry === false);
+});

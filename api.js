@@ -1,5 +1,8 @@
 // Same-origin API client for the Worker. Kept free of DOM access so it can be tested.
 const LOST_SESSION = new Set(['authentication_required', 'session_invalid']);
+// Failures where a second attempt can succeed even though the Worker sent x-should-retry: false:
+// the model produced unusable output, or ran out of output room (retry with fewer entries per request).
+const RETRYABLE_CODES = new Set(['invalid_model_response', 'model_output_limit']);
 const RESTART_KEY = 'bibliography-signin-restart';
 
 export function createApi({ fetchImpl = (...args) => fetch(...args), location, base, storage, now = Date.now, randomUUID = () => crypto.randomUUID() }) {
@@ -26,7 +29,7 @@ export function createApi({ fetchImpl = (...args) => fetch(...args), location, b
     if (!response.ok) {
       const retryAfter = Number(response.headers.get('retry-after'));
       const error = new Error(result.error?.message || 'The CAIL service is unavailable.');
-      Object.assign(error, { status: response.status, code: result.error?.code, requestId: result.error?.request_id || requestId, shouldRetry: response.headers.get('x-should-retry') === 'true', ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { retryAfter } : {}) });
+      Object.assign(error, { status: response.status, code: result.error?.code, requestId: result.error?.request_id || requestId, shouldRetry: response.headers.get('x-should-retry') === 'true' || RETRYABLE_CODES.has(result.error?.code), ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { retryAfter } : {}) });
       if (response.status === 401 && LOST_SESSION.has(error.code)) error.signInRestarted = restartSignIn();
       throw error;
     }
