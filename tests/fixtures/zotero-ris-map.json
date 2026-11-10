@@ -1,0 +1,753 @@
+{
+ "source": "zotero/translators RIS.js, lastUpdated 2026-01-05 18:52:35 (fetched 2026-11-10). Type and tag tables only; AGPL-3.0 upstream.",
+ "DEFAULT_IMPORT_TYPE": "journalArticle",
+ "importTypeMap": {
+  "ABST": "journalArticle",
+  "ADVS": "film",
+  "AGGR": "document",
+  "ANCIENT": "document",
+  "CHART": "artwork",
+  "CLSWK": "book",
+  "CPAPER": "conferencePaper",
+  "CTLG": "magazineArticle",
+  "DBASE": "dataset",
+  "EBOOK": "book",
+  "ECHAP": "bookSection",
+  "EDBOOK": "book",
+  "EJOUR": "journalArticle",
+  "EQUA": "document",
+  "FIGURE": "artwork",
+  "GEN": "journalArticle",
+  "GOVDOC": "report",
+  "GRNT": "document",
+  "INPR": "manuscript",
+  "JFULL": "journalArticle",
+  "LEGAL": "case",
+  "MULTI": "videoRecording",
+  "MUSIC": "audioRecording",
+  "PAMP": "manuscript",
+  "SER": "book",
+  "STAND": "report",
+  "UNBILL": "manuscript",
+  "UNPD": "manuscript",
+  "WEB": "webpage",
+  "ART": "artwork",
+  "SOUND": "audioRecording",
+  "BILL": "bill",
+  "BLOG": "blogPost",
+  "BOOK": "book",
+  "CHAP": "bookSection",
+  "CASE": "case",
+  "COMP": "computerProgram",
+  "CONF": "conferencePaper",
+  "DICT": "dictionaryEntry",
+  "ENCYC": "encyclopediaArticle",
+  "ICOMM": "email",
+  "DATA": "dataset",
+  "MPCT": "film",
+  "HEAR": "hearing",
+  "JOUR": "journalArticle",
+  "PCOMM": "letter",
+  "MGZN": "magazineArticle",
+  "MANSCPT": "manuscript",
+  "MAP": "map",
+  "NEWS": "newspaperArticle",
+  "PAT": "patent",
+  "SLIDE": "presentation",
+  "RPRT": "report",
+  "STAT": "statute",
+  "THES": "thesis",
+  "VIDEO": "videoRecording",
+  "ELEC": "webpage"
+ },
+ "exportTypeMap": {
+  "artwork": "ART",
+  "audioRecording": "SOUND",
+  "bill": "BILL",
+  "blogPost": "BLOG",
+  "book": "BOOK",
+  "bookSection": "CHAP",
+  "case": "CASE",
+  "computerProgram": "COMP",
+  "conferencePaper": "CONF",
+  "dictionaryEntry": "DICT",
+  "encyclopediaArticle": "ENCYC",
+  "email": "ICOMM",
+  "dataset": "DATA",
+  "film": "MPCT",
+  "hearing": "HEAR",
+  "journalArticle": "JOUR",
+  "letter": "PCOMM",
+  "magazineArticle": "MGZN",
+  "manuscript": "MANSCPT",
+  "map": "MAP",
+  "newspaperArticle": "NEWS",
+  "patent": "PAT",
+  "presentation": "SLIDE",
+  "report": "RPRT",
+  "statute": "STAT",
+  "thesis": "THES",
+  "videoRecording": "VIDEO",
+  "webpage": "ELEC"
+ },
+ "degenerateExportTypeMap": {
+  "interview": "PCOMM",
+  "instantMessage": "ICOMM",
+  "forumPost": "ICOMM",
+  "tvBroadcast": "MPCT",
+  "radioBroadcast": "SOUND",
+  "podcast": "SOUND",
+  "document": "GEN"
+ },
+ "fieldMap": {
+  "AB": "abstractNote",
+  "AN": "archiveLocation",
+  "CN": "callNumber",
+  "DB": "archive",
+  "DO": "DOI",
+  "DP": "libraryCatalog",
+  "J2": "journalAbbreviation",
+  "KW": "tags",
+  "L1": "attachments/PDF",
+  "L2": "attachments/HTML",
+  "L4": "attachments/other",
+  "N1": "notes",
+  "ST": "shortTitle",
+  "UR": "url",
+  "Y2": "accessDate",
+  "TI": {
+   "__default": "title",
+   "subject": [
+    "email"
+   ],
+   "caseName": [
+    "case"
+   ],
+   "nameOfAct": [
+    "statute"
+   ]
+  },
+  "T2": {
+   "code": [
+    "bill",
+    "statute"
+   ],
+   "bookTitle": [
+    "bookSection"
+   ],
+   "blogTitle": [
+    "blogPost"
+   ],
+   "conferenceName": [
+    "conferencePaper"
+   ],
+   "dictionaryTitle": [
+    "dictionaryEntry"
+   ],
+   "encyclopediaTitle": [
+    "encyclopediaArticle"
+   ],
+   "committee": [
+    "hearing"
+   ],
+   "forumTitle": [
+    "forumPost"
+   ],
+   "websiteTitle": [
+    "webpage"
+   ],
+   "programTitle": [
+    "radioBroadcast",
+    "tvBroadcast"
+   ],
+   "meetingName": [
+    "presentation"
+   ],
+   "seriesTitle": [
+    "computerProgram",
+    "map",
+    "report"
+   ],
+   "series": [
+    "book"
+   ],
+   "publicationTitle": [
+    "journalArticle",
+    "magazineArticle",
+    "newspaperArticle"
+   ]
+  },
+  "T3": {
+   "legislativeBody": [
+    "hearing",
+    "bill"
+   ],
+   "series": [
+    "bookSection",
+    "conferencePaper",
+    "journalArticle"
+   ],
+   "seriesTitle": [
+    "audioRecording"
+   ]
+  },
+  "AU": {
+   "__default": "creators/author",
+   "creators/artist": [
+    "artwork"
+   ],
+   "creators/cartographer": [
+    "map"
+   ],
+   "creators/composer": [
+    "audioRecording"
+   ],
+   "creators/director": [
+    "film",
+    "radioBroadcast",
+    "tvBroadcast",
+    "videoRecording"
+   ],
+   "creators/interviewee": [
+    "interview"
+   ],
+   "creators/inventor": [
+    "patent"
+   ],
+   "creators/podcaster": [
+    "podcast"
+   ],
+   "creators/programmer": [
+    "computerProgram"
+   ]
+  },
+  "A1": {
+   "__default": "creators/author",
+   "creators/artist": [
+    "artwork"
+   ],
+   "creators/cartographer": [
+    "map"
+   ],
+   "creators/composer": [
+    "audioRecording"
+   ],
+   "creators/director": [
+    "film",
+    "radioBroadcast",
+    "tvBroadcast",
+    "videoRecording"
+   ],
+   "creators/interviewee": [
+    "interview"
+   ],
+   "creators/inventor": [
+    "patent"
+   ],
+   "creators/podcaster": [
+    "podcast"
+   ],
+   "creators/programmer": [
+    "computerProgram"
+   ]
+  },
+  "A2": {
+   "creators/sponsor": [
+    "bill"
+   ],
+   "creators/performer": [
+    "audioRecording"
+   ],
+   "creators/presenter": [
+    "presentation"
+   ],
+   "creators/interviewer": [
+    "interview"
+   ],
+   "creators/editor": [
+    "journalArticle",
+    "bookSection",
+    "conferencePaper",
+    "dictionaryEntry",
+    "document",
+    "encyclopediaArticle"
+   ],
+   "creators/seriesEditor": [
+    "book",
+    "report"
+   ],
+   "creators/recipient": [
+    "email",
+    "instantMessage",
+    "letter"
+   ],
+   "reporter": [
+    "case"
+   ],
+   "issuingAuthority": [
+    "patent"
+   ]
+  },
+  "A3": {
+   "creators/contributor": [
+    "thesis"
+   ],
+   "creators/cosponsor": [
+    "bill"
+   ],
+   "creators/producer": [
+    "film",
+    "tvBroadcast",
+    "videoRecording",
+    "radioBroadcast"
+   ],
+   "creators/editor": [
+    "book"
+   ],
+   "creators/seriesEditor": [
+    "bookSection",
+    "conferencePaper",
+    "dictionaryEntry",
+    "encyclopediaArticle",
+    "map"
+   ]
+  },
+  "A4": {
+   "__default": "creators/translator",
+   "creators/counsel": [
+    "case"
+   ],
+   "creators/contributor": [
+    "conferencePaper",
+    "film",
+    "dataset"
+   ]
+  },
+  "C1": {
+   "filingDate": [
+    "patent"
+   ],
+   "creators/castMember": [
+    "radioBroadcast",
+    "tvBroadcast",
+    "videoRecording"
+   ],
+   "scale": [
+    "map"
+   ],
+   "place": [
+    "conferencePaper"
+   ]
+  },
+  "C2": {
+   "issueDate": [
+    "patent"
+   ],
+   "creators/bookAuthor": [
+    "bookSection"
+   ],
+   "creators/commenter": [
+    "blogPost"
+   ]
+  },
+  "C3": {
+   "artworkSize": [
+    "artwork"
+   ],
+   "proceedingsTitle": [
+    "conferencePaper"
+   ],
+   "country": [
+    "patent"
+   ]
+  },
+  "C4": {
+   "creators/wordsBy": [
+    "audioRecording"
+   ],
+   "creators/attorneyAgent": [
+    "patent"
+   ],
+   "genre": [
+    "film"
+   ]
+  },
+  "C5": {
+   "references": [
+    "patent"
+   ],
+   "audioRecordingFormat": [
+    "audioRecording",
+    "radioBroadcast"
+   ],
+   "videoRecordingFormat": [
+    "film",
+    "tvBroadcast",
+    "videoRecording"
+   ]
+  },
+  "C6": {
+   "legalStatus": [
+    "patent"
+   ]
+  },
+  "CY": {
+   "__default": "place",
+   "repositoryLocation": [
+    "dataset"
+   ],
+   "__exclude": [
+    "conferencePaper"
+   ]
+  },
+  "DA": {
+   "__default": "date",
+   "dateEnacted": [
+    "statute"
+   ],
+   "dateDecided": [
+    "case"
+   ],
+   "issueDate": [
+    "patent"
+   ]
+  },
+  "ET": {
+   "__default": "edition",
+   "session": [
+    "bill",
+    "hearing",
+    "statute"
+   ],
+   "versionNumber": [
+    "computerProgram",
+    "dataset"
+   ]
+  },
+  "IS": {
+   "__default": "issue",
+   "numberOfVolumes": [
+    "bookSection"
+   ],
+   "__exclude": [
+    "dataset"
+   ]
+  },
+  "LA": {
+   "__default": "language",
+   "programmingLanguage": [
+    "computerProgram"
+   ]
+  },
+  "M1": {
+   "seriesNumber": [
+    "book"
+   ],
+   "billNumber": [
+    "bill"
+   ],
+   "system": [
+    "computerProgram"
+   ],
+   "documentNumber": [
+    "hearing"
+   ],
+   "applicationNumber": [
+    "patent"
+   ],
+   "publicLawNumber": [
+    "statute"
+   ],
+   "episodeNumber": [
+    "podcast",
+    "radioBroadcast",
+    "tvBroadcast"
+   ]
+  },
+  "M3": {
+   "manuscriptType": [
+    "manuscript"
+   ],
+   "mapType": [
+    "map"
+   ],
+   "reportType": [
+    "report"
+   ],
+   "thesisType": [
+    "thesis"
+   ],
+   "websiteType": [
+    "blogPost",
+    "webpage"
+   ],
+   "postType": [
+    "forumPost"
+   ],
+   "letterType": [
+    "letter"
+   ],
+   "interviewMedium": [
+    "interview"
+   ],
+   "presentationType": [
+    "presentation"
+   ],
+   "artworkMedium": [
+    "artwork"
+   ],
+   "audioFileType": [
+    "podcast"
+   ]
+  },
+  "NV": {
+   "__default": "numberOfVolumes",
+   "identifier": [
+    "dataset"
+   ],
+   "__exclude": [
+    "bookSection"
+   ]
+  },
+  "OP": {
+   "history": [
+    "hearing",
+    "statute",
+    "bill",
+    "case"
+   ],
+   "priorityNumbers": [
+    "patent"
+   ]
+  },
+  "PB": {
+   "__default": "publisher",
+   "label": [
+    "audioRecording"
+   ],
+   "court": [
+    "case"
+   ],
+   "distributor": [
+    "film"
+   ],
+   "assignee": [
+    "patent"
+   ],
+   "institution": [
+    "report"
+   ],
+   "repository": [
+    "dataset"
+   ],
+   "university": [
+    "thesis"
+   ],
+   "company": [
+    "computerProgram"
+   ],
+   "studio": [
+    "videoRecording"
+   ],
+   "network": [
+    "radioBroadcast",
+    "tvBroadcast"
+   ]
+  },
+  "PY": {
+   "__default": "date",
+   "dateEnacted": [
+    "statute"
+   ],
+   "dateDecided": [
+    "case"
+   ],
+   "issueDate": [
+    "patent"
+   ]
+  },
+  "SE": {
+   "__default": "section",
+   "__exclude": [
+    "case"
+   ]
+  },
+  "SN": {
+   "__default": "ISBN",
+   "ISSN": [
+    "journalArticle",
+    "magazineArticle",
+    "newspaperArticle"
+   ],
+   "patentNumber": [
+    "patent"
+   ],
+   "reportNumber": [
+    "report"
+   ]
+  },
+  "SP": {
+   "__default": "pages",
+   "codePages": [
+    "bill"
+   ],
+   "numPages": [
+    "book",
+    "thesis",
+    "manuscript"
+   ],
+   "firstPage": [
+    "case"
+   ],
+   "runningTime": [
+    "film"
+   ]
+  },
+  "SV": {
+   "seriesNumber": [
+    "bookSection"
+   ],
+   "docketNumber": [
+    "case"
+   ]
+  },
+  "VL": {
+   "__default": "volume",
+   "codeNumber": [
+    "statute"
+   ],
+   "codeVolume": [
+    "bill"
+   ],
+   "reporterVolume": [
+    "case"
+   ],
+   "__exclude": [
+    "patent",
+    "webpage"
+   ]
+  }
+ },
+ "degenerateImportFieldMap": {
+  "AD": {
+   "__default": "unsupported/Author Address",
+   "unsupported/Inventor Address": [
+    "patent"
+   ]
+  },
+  "AV": "archiveLocation",
+  "BT": {
+   "title": [
+    "book",
+    "manuscript"
+   ],
+   "bookTitle": [
+    "bookSection"
+   ],
+   "__default": "backupPublicationTitle"
+  },
+  "CA": "unsupported/Caption",
+  "CR": "rights",
+  "CT": "title",
+  "CY": "place",
+  "ED": "creators/editor",
+  "EP": "pages",
+  "H1": "unsupported/Library Catalog",
+  "H2": "unsupported/Call Number",
+  "ID": "__ignore",
+  "IS": {
+   "versionNumber": [
+    "dataset"
+   ]
+  },
+  "JA": "journalAbbreviation",
+  "JF": "publicationTitle",
+  "JO": {
+   "__default": "journalAbbreviation",
+   "conferenceName": [
+    "conferencePaper"
+   ]
+  },
+  "LB": "unsupported/Label",
+  "M1": {
+   "__default": "extra",
+   "issue": [
+    "journalArticle"
+   ],
+   "numberOfVolumes": [
+    "bookSection"
+   ],
+   "accessDate": [
+    "webpage"
+   ]
+  },
+  "M2": "extra",
+  "M3": "DOI",
+  "N2": "abstractNote",
+  "NV": "numberOfVolumes",
+  "OP": {
+   "__default": "unsupported/Original Publication",
+   "unsupported/Content": [
+    "blogPost",
+    "computerProgram",
+    "film",
+    "presentation",
+    "report",
+    "videoRecording",
+    "webpage"
+   ]
+  },
+  "RI": {
+   "__default": "unsupported/Reviewed Item",
+   "unsupported/Article Number": [
+    "statute"
+   ]
+  },
+  "RN": "notes",
+  "SE": {
+   "unsupported/File Date": [
+    "case"
+   ]
+  },
+  "T1": {
+   "__default": "title",
+   "subject": [
+    "email"
+   ],
+   "caseName": [
+    "case"
+   ],
+   "nameOfAct": [
+    "statute"
+   ]
+  },
+  "T2": "backupPublicationTitle",
+  "T3": {
+   "series": [
+    "book"
+   ]
+  },
+  "TA": "unsupported/Translated Author",
+  "TT": "unsupported/Translated Title",
+  "VL": {
+   "unsupported/Patent Version Number": [
+    "patent"
+   ],
+   "accessDate": [
+    "webpage"
+   ]
+  },
+  "Y1": {
+   "__default": "date",
+   "dateEnacted": [
+    "statute"
+   ],
+   "dateDecided": [
+    "case"
+   ],
+   "issueDate": [
+    "patent"
+   ]
+  }
+ }
+}

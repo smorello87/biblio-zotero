@@ -1,4 +1,4 @@
-import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON } from './core.js';
+import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON, NAME_ROLES, DATE_FIELDS } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
 import { createApi } from './api.js';
 import { modelMenus, chooseModel } from './models.js';
@@ -181,8 +181,8 @@ function renderResults() {
       const fields = document.createElement('dl'); fields.className = 'record-fields';
       for (const [key, value] of Object.entries(record.item).filter(([key]) => key !== 'id')) {
         let displayValue = value;
-        if (['author', 'editor', 'translator'].includes(key)) displayValue = value.map(p => p.literal || [p.given, p.family].filter(Boolean).join(' ')).join('; ');
-        else if (key === 'issued') displayValue = value['date-parts'].map(p => p.join('-')).join(' – ');
+        if (NAME_ROLES.includes(key)) displayValue = value.map(p => p.literal || [p.given, p.family].filter(Boolean).join(' ')).join('; ');
+        else if (DATE_FIELDS.includes(key)) displayValue = value['date-parts'].map(p => p.join('-')).join(' – ');
         fields.append(text('dt', key), text('dd', String(displayValue)));
       }
       body.append(fields);

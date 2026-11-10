@@ -1,0 +1,383 @@
+{
+ "source": "zotero/zotero-schema schema.json version 45 (fetched 2026-11-10), csl section and item-type creator types only",
+ "cslTypes": {
+  "article": [
+   "preprint"
+  ],
+  "article-journal": [
+   "journalArticle"
+  ],
+  "article-magazine": [
+   "magazineArticle"
+  ],
+  "article-newspaper": [
+   "newspaperArticle"
+  ],
+  "bill": [
+   "bill"
+  ],
+  "book": [
+   "book"
+  ],
+  "broadcast": [
+   "podcast",
+   "tvBroadcast",
+   "radioBroadcast"
+  ],
+  "chapter": [
+   "bookSection"
+  ],
+  "dataset": [
+   "dataset"
+  ],
+  "document": [
+   "document",
+   "attachment",
+   "note"
+  ],
+  "entry-dictionary": [
+   "dictionaryEntry"
+  ],
+  "entry-encyclopedia": [
+   "encyclopediaArticle"
+  ],
+  "graphic": [
+   "artwork"
+  ],
+  "hearing": [
+   "hearing"
+  ],
+  "interview": [
+   "interview"
+  ],
+  "legal_case": [
+   "case"
+  ],
+  "legislation": [
+   "statute"
+  ],
+  "manuscript": [
+   "manuscript"
+  ],
+  "map": [
+   "map"
+  ],
+  "motion_picture": [
+   "film",
+   "videoRecording"
+  ],
+  "paper-conference": [
+   "conferencePaper"
+  ],
+  "patent": [
+   "patent"
+  ],
+  "personal_communication": [
+   "letter",
+   "email",
+   "instantMessage"
+  ],
+  "post": [
+   "forumPost"
+  ],
+  "post-weblog": [
+   "blogPost"
+  ],
+  "report": [
+   "report"
+  ],
+  "software": [
+   "computerProgram"
+  ],
+  "song": [
+   "audioRecording"
+  ],
+  "speech": [
+   "presentation"
+  ],
+  "standard": [
+   "standard"
+  ],
+  "thesis": [
+   "thesis"
+  ],
+  "webpage": [
+   "webpage"
+  ]
+ },
+ "cslNames": {
+  "author": "author",
+  "bookAuthor": "container-author",
+  "chair": "chair",
+  "castMember": "performer",
+  "composer": "composer",
+  "contributor": "contributor",
+  "creator": "author",
+  "director": "director",
+  "editor": "editor",
+  "executiveProducer": "executive-producer",
+  "guest": "guest",
+  "host": "host",
+  "interviewer": "interviewer",
+  "narrator": "narrator",
+  "originalCreator": "original-author",
+  "organizer": "organizer",
+  "podcaster": "host",
+  "producer": "producer",
+  "recipient": "recipient",
+  "reviewedAuthor": "reviewed-author",
+  "seriesCreator": "series-creator",
+  "seriesEditor": "collection-editor",
+  "scriptwriter": "script-writer",
+  "translator": "translator"
+ },
+ "creatorTypes": {
+  "annotation": [],
+  "artwork": [
+   "artist",
+   "contributor"
+  ],
+  "attachment": [],
+  "audioRecording": [
+   "performer",
+   "originalCreator",
+   "composer",
+   "wordsBy",
+   "translator",
+   "contributor"
+  ],
+  "bill": [
+   "sponsor",
+   "cosponsor",
+   "contributor"
+  ],
+  "blogPost": [
+   "author",
+   "translator",
+   "commenter",
+   "contributor"
+  ],
+  "book": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "seriesEditor"
+  ],
+  "bookSection": [
+   "author",
+   "contributor",
+   "editor",
+   "bookAuthor",
+   "translator",
+   "seriesEditor"
+  ],
+  "case": [
+   "author",
+   "counsel",
+   "contributor"
+  ],
+  "computerProgram": [
+   "programmer",
+   "contributor"
+  ],
+  "conferencePaper": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "seriesEditor"
+  ],
+  "dataset": [
+   "author",
+   "contributor"
+  ],
+  "dictionaryEntry": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "seriesEditor"
+  ],
+  "document": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "reviewedAuthor"
+  ],
+  "email": [
+   "author",
+   "translator",
+   "contributor",
+   "recipient"
+  ],
+  "encyclopediaArticle": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "seriesEditor"
+  ],
+  "film": [
+   "director",
+   "producer",
+   "scriptwriter",
+   "castMember",
+   "host",
+   "guest",
+   "narrator",
+   "translator",
+   "contributor"
+  ],
+  "forumPost": [
+   "author",
+   "contributor"
+  ],
+  "hearing": [
+   "contributor"
+  ],
+  "instantMessage": [
+   "author",
+   "contributor",
+   "recipient"
+  ],
+  "interview": [
+   "interviewee",
+   "contributor",
+   "interviewer",
+   "translator"
+  ],
+  "journalArticle": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "reviewedAuthor"
+  ],
+  "letter": [
+   "author",
+   "recipient",
+   "contributor",
+   "translator"
+  ],
+  "magazineArticle": [
+   "author",
+   "contributor",
+   "translator",
+   "reviewedAuthor"
+  ],
+  "manuscript": [
+   "author",
+   "contributor",
+   "translator"
+  ],
+  "map": [
+   "cartographer",
+   "contributor",
+   "seriesEditor"
+  ],
+  "newspaperArticle": [
+   "author",
+   "contributor",
+   "translator",
+   "reviewedAuthor"
+  ],
+  "note": [],
+  "patent": [
+   "inventor",
+   "attorneyAgent",
+   "contributor"
+  ],
+  "podcast": [
+   "podcaster",
+   "guest",
+   "producer",
+   "executiveProducer",
+   "seriesCreator",
+   "director",
+   "scriptwriter",
+   "castMember",
+   "translator",
+   "contributor"
+  ],
+  "preprint": [
+   "author",
+   "contributor",
+   "editor",
+   "translator",
+   "reviewedAuthor"
+  ],
+  "presentation": [
+   "presenter",
+   "chair",
+   "organizer",
+   "contributor",
+   "translator"
+  ],
+  "radioBroadcast": [
+   "creator",
+   "host",
+   "guest",
+   "producer",
+   "executiveProducer",
+   "seriesCreator",
+   "director",
+   "scriptwriter",
+   "castMember",
+   "translator",
+   "contributor"
+  ],
+  "report": [
+   "author",
+   "editor",
+   "contributor",
+   "translator",
+   "seriesEditor"
+  ],
+  "standard": [
+   "author",
+   "editor",
+   "contributor"
+  ],
+  "statute": [
+   "author",
+   "contributor"
+  ],
+  "thesis": [
+   "author",
+   "contributor"
+  ],
+  "tvBroadcast": [
+   "director",
+   "producer",
+   "executiveProducer",
+   "seriesCreator",
+   "scriptwriter",
+   "castMember",
+   "host",
+   "guest",
+   "narrator",
+   "translator",
+   "contributor"
+  ],
+  "videoRecording": [
+   "creator",
+   "director",
+   "producer",
+   "scriptwriter",
+   "executiveProducer",
+   "castMember",
+   "host",
+   "guest",
+   "narrator",
+   "translator",
+   "contributor"
+  ],
+  "webpage": [
+   "author",
+   "contributor",
+   "translator"
+  ]
+ }
+}
