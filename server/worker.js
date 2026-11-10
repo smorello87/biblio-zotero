@@ -4,6 +4,8 @@ import { parsingPrompt, ocrPrompt } from './prompts.js';
 
 const ORIGIN = 'https://tools.ailab.gc.cuny.edu';
 const AUDIENCE = 'cail:bibliography';
+// Doorway's launch route for this tool; 401 bodies carry it so the page restarts sign-in there.
+const LAUNCH_PATH = '/launch/bibliography';
 const MAX_BODY = 8 * 1024 * 1024;
 // Workers AI Chat defaults max_tokens to 256 when the caller omits it (Gateway adds a default only
 // for GPT-OSS), which truncates any CSL-JSON batch. Non-reasoning Workers AI and unlisted models ask
@@ -235,7 +237,7 @@ export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, cat
       const message = known ? (error.code === 'upstream_timeout' ? `${error.message} ${TIMEOUT_ADVICE}` : error.message) : status === 504 ? `The model did not finish within ${DEADLINE_MS / 60000} minutes. ${TIMEOUT_ADVICE}` : status === 499 ? 'The request was cancelled.' : 'The service is temporarily unavailable. Completed entries are preserved.';
       const retry = error instanceof CailError ? error.extras.should_retry : status === 503;
       const retryAfter = error instanceof CailError ? error.extras.retry_after_seconds : undefined;
-      return json({ error: { code, message, request_id: requestId } }, status, { 'x-should-retry': retry === true ? 'true' : 'false', 'x-cail-request-id': requestId, ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { 'retry-after': String(retryAfter) } : {}) });
+      return json({ error: { code, message, request_id: requestId, ...(status === 401 ? { launch: LAUNCH_PATH } : {}) } }, status, { 'x-should-retry': retry === true ? 'true' : 'false', 'x-cail-request-id': requestId, ...(Number.isInteger(retryAfter) && retryAfter > 0 ? { 'retry-after': String(retryAfter) } : {}) });
     }
   };
 }

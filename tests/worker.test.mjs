@@ -17,7 +17,12 @@ const catalogOf = rows => Response.json({ object: 'list', data: rows.map(([id, c
 const batch = { model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] };
 test('invalid verifier configuration is 503; missing identity is authentication_required; wrong, malformed or mismatched identity is invalid_credential', async () => {
   const handle = createHandler({ fetchImpl: () => assert.fail('Must not contact Gateway') });
-  const failure = async (req, configuration = env) => { const response = await handle(req, configuration); return [response.status, (await response.json()).error.code]; };
+  const failure = async (req, configuration = env) => {
+    const response = await handle(req, configuration);
+    const { error } = await response.json();
+    assert.equal(error.launch, response.status === 401 ? '/launch/bibliography' : undefined, 'every 401 names the launch path, nothing else does');
+    return [response.status, error.code];
+  };
   assert.deepEqual(await failure(await request('quota'), {}), [503, 'identity_unavailable']);
   assert.deepEqual(await failure(new Request('https://tools.ailab.gc.cuny.edu/bibliography/api/quota'), {}), [503, 'identity_unavailable']);
   assert.deepEqual(await failure(new Request('https://tools.ailab.gc.cuny.edu/bibliography/api/quota')), [401, 'authentication_required']);
