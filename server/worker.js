@@ -1,6 +1,8 @@
 import { CAIL_CANONICAL_ISSUER, loadIdentityVerifierConfig, readIdentityKeyring, verifyIdentityJwt, verifyKeyringGatewayJwt } from '@cuny-ai-lab/cail-identity';
 import { CailError, createCailClient } from '@cuny-ai-lab/cail-client';
 import { parsingPrompt, ocrPrompt } from './prompts.js';
+import { runLookup, SourceError } from './lookup.js';
+import { validateItem } from '../core.js';
 
 const ORIGIN = 'https://tools.ailab.gc.cuny.edu';
 const AUDIENCE = 'cail:bibliography';
@@ -24,6 +26,12 @@ const DEADLINE_MS = 180000;
 const CATALOG_CACHE_MS = 10 * 60 * 1000;
 const CATALOG_RETRY_MS = 30000;
 const CATALOG_TIMEOUT_MS = 5000;
+// Catalog lookups reach only these hosts, over HTTPS, with URLs this Worker builds; a person's input
+// is never fetched. CATALOG_HOSTS (wrangler.toml) can narrow the list, never extend it.
+const CATALOG_HOSTS = ['openlibrary.org', 'api.crossref.org', 'www.googleapis.com', 'www.wikidata.org'];
+const CATALOG_TIMEOUT_PER_SOURCE_MS = 8000;
+// Identifies the tool to the catalogs (Wikidata's User-Agent policy; Crossref's polite pool).
+const CATALOG_USER_AGENT = 'CUNY-AI-Lab-Bibliography/1.0 (https://tools.ailab.gc.cuny.edu/bibliography/; mailto:ailab@gc.cuny.edu)';
 const TIMEOUT_ADVICE = 'Completed entries are preserved. Try fewer entries per request or another model.';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 class AppError extends Error {
@@ -94,11 +102,53 @@ async function authenticate(request, env) {
   return { kind: 'jwt', token: keyring.gatewayJwt };
 }
 
-// fetchImpl reaches the public web (Open Library, enabled bibliography sites). Gateway calls go
+const lookupString = (value, max) => value === undefined || value === null || value === '' ? undefined : typeof value === 'string' && value.length <= max ? value.trim() : null;
+function enrichQuery(body) {
+  const fields = { title: lookupString(body?.title, 500), author: lookupString(body?.author, 250), container: lookupString(body?.container, 500), url: lookupString(body?.url, 2000), doi: lookupString(body?.doi, 250), isbn: lookupString(body?.isbn, 40) };
+  const yearOk = value => value === undefined || value === null || (Number.isInteger(value) && value > 0 && value < 3000);
+  if (!body || typeof body !== 'object' || !validateItem({ type: body.type, title: 'x' }) || !fields.title || Object.values(fields).includes(null) || !yearOk(body.year) || !yearOk(body.yearEnd)) throw new AppError('invalid_request', 'Provide the entry type, title and optional creator, year and identifiers for catalog lookup.');
+  return { type: body.type, ...fields, author: fields.author || '', year: body.year ?? undefined, yearEnd: body.yearEnd ?? undefined };
+}
+
+// One catalog request: allowlisted HTTPS hosts only, redirects re-checked (at most two), bounded
+// body, its own deadline. Returns parsed JSON, null for 404, or throws a SourceError; a caller abort
+// propagates as an AbortError.
+function createCatalogFetch(publicFetch) {
+  return async function catalogFetch(address, limit, allowed, signal) {
+    let target = new URL(address);
+    const deadline = AbortSignal.timeout(CATALOG_TIMEOUT_PER_SOURCE_MS);
+    const both = AbortSignal.any([signal, deadline]);
+    for (let hop = 0; hop < 3; hop++) {
+      if (target.protocol !== 'https:' || target.username || target.password || target.port || !CATALOG_HOSTS.includes(target.hostname)) throw new SourceError('redirect');
+      if (!allowed.includes(target.hostname)) throw new SourceError('disabled');
+      let response;
+      try { response = await publicFetch(target, { redirect: 'manual', credentials: 'omit', signal: both, headers: { accept: 'application/json', 'user-agent': CATALOG_USER_AGENT } }); }
+      catch (error) { if (signal.aborted) throw error; throw new SourceError(deadline.aborted ? 'timeout' : 'network'); }
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location');
+        await response.body?.cancel();
+        if (!location) throw new SourceError('redirect');
+        try { target = new URL(location, target); } catch { throw new SourceError('redirect'); }
+        continue;
+      }
+      if (response.status === 404) { await response.body?.cancel(); return null; }
+      if (!response.ok) { await response.body?.cancel(); throw new SourceError('status', response.status); }
+      if (!/^application\/(?:[\w.+-]+\+)?json\b/i.test(response.headers.get('content-type') || '')) { await response.body?.cancel(); throw new SourceError('unreadable'); }
+      let text;
+      try { text = await boundedText(response, limit); }
+      catch (error) { if (signal.aborted) throw error; if (error instanceof AppError) throw new SourceError('too_large'); throw new SourceError(deadline.aborted ? 'timeout' : 'network'); }
+      try { return JSON.parse(text); } catch { throw new SourceError('unreadable'); }
+    }
+    throw new SourceError('redirect');
+  };
+}
+
+// fetchImpl reaches the public web (the catalogs above, enabled bibliography sites). Gateway calls go
 // through env.GATEWAY, a service binding to the Gateway Worker (cail-model-api); tests may pass
 // gatewayFetch, or a single fetchImpl for both.
 export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS } = {}) {
   const publicFetch = fetchImpl ?? ((input, init) => fetch(input, init));
+  const catalogFetch = createCatalogFetch(publicFetch);
   let binding = null;
   const viaBinding = (input, init) => {
     if (!binding) throw new TypeError('GATEWAY service binding is not configured.');
@@ -163,32 +213,9 @@ export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_M
       if (path === '/api/quota' && request.method === 'GET') return json(await client.getQuota(credential, { signal }));
       if (path === '/api/catalog' && request.method === 'GET') return json(await client.getCatalogSnapshot({ modality: 'all', signal }));
       if (path === '/api/enrich' && request.method === 'POST') {
-        const body = await bodyJSON(request);
-        if (typeof body?.title !== 'string' || body.title.length > 500 || typeof body?.author !== 'string' || body.author.length > 250) throw new AppError('invalid_request', 'Provide a title and author for library lookup.');
-        const query = new URLSearchParams({ title: body.title, author: body.author, limit: '5' });
-        if (Number.isInteger(body.year) && body.year > 0) query.set('first_publish_year', String(body.year));
-        const response = await publicFetch(`https://openlibrary.org/search.json?${query}`, { redirect: 'manual', credentials: 'omit', signal, headers: { accept: 'application/json' } });
-        if (!response.ok || response.status >= 300) { await response.body?.cancel(); throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
-        let result;
-        try { result = JSON.parse(await boundedText(response, 1024 * 1024)); } catch { throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
-        const match = result?.docs?.[0];
-        if (!match) return json({ suggestion: null });
-        // Every suggested value is merged into a CSL-JSON record on acceptance, so only short strings pass.
-        const first = (value, pattern = /\S/) => (Array.isArray(value) ? value : []).find(item => typeof item === 'string' && item.length <= 300 && pattern.test(item));
-        const fields = {};
-        const isbn = first(match.isbn, /^\d{13}$/) || first(match.isbn, /^\d{9}[\dX]$/);
-        if (isbn) fields.ISBN = isbn;
-        const oclc = first(match.oclc, /^\d{1,20}$/);
-        if (oclc) fields.OCLC = oclc;
-        const lccn = first(match.lccn, /^[a-z]{0,3}\d{1,12}$/);
-        if (lccn) fields['call-number'] = lccn;
-        const publisher = first(match.publisher);
-        if (publisher) fields.publisher = publisher;
-        const place = first(match.publish_place);
-        if (place) fields['publisher-place'] = place;
-        if (Number.isSafeInteger(match.number_of_pages_median) && match.number_of_pages_median > 0) fields['number-of-pages'] = String(match.number_of_pages_median);
-        const title = typeof match.title === 'string' && match.title.trim() && match.title.length <= 500 ? match.title : body.title;
-        return json({ suggestion: { title, url: typeof match.key === 'string' && /^\/works\/OL\d+W$/.test(match.key) ? `https://openlibrary.org${match.key}` : 'https://openlibrary.org', fields } });
+        const query = enrichQuery(await bodyJSON(request));
+        const allowed = env.CATALOG_HOSTS === undefined ? CATALOG_HOSTS : CATALOG_HOSTS.filter(host => String(env.CATALOG_HOSTS).split(',').map(value => value.trim()).includes(host));
+        return json(await runLookup(query, (source, address, limit) => catalogFetch(address, limit, allowed, signal), { pause: ms => new Promise(resolve => setTimeout(resolve, ms)) }));
       }
       if (['/api/parse', '/api/ocr'].includes(path) && request.method === 'POST') {
         const body = await bodyJSON(request);

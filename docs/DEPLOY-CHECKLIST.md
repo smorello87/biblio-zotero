@@ -37,6 +37,9 @@ protection), and `main` must allow the author to merge. Both are prerequisites o
 - `workers_dev = false` and `preview_urls = false` (the verifier fails otherwise).
 - `[vars] CAIL_IDENTITY_ISSUER = "https://tools.ailab.gc.cuny.edu/cail-sso"` (asserted by the verifier).
 - `[vars] SCRAPE_HOSTS` is the import allowlist (only `italianamericanimprints.omeka.net`; asserted by the verifier).
+- `[vars] CATALOG_HOSTS = "openlibrary.org,api.crossref.org,www.googleapis.com,www.wikidata.org"` is the catalog
+  lookup allowlist (asserted by the verifier; it can only narrow the fixed list in `server/worker.js`). Removing a host
+  switches that source off and the page reports it as "not enabled".
 - `[version_metadata] binding = "CF_VERSION_METADATA"`.
 - `[[services]] binding = "GATEWAY"`, `service = "cail-model-api"` (asserted by the verifier). Every Gateway call
   (chat, quota, catalog) goes through it. A global `fetch()` to `https://tools.ailab.gc.cuny.edu/v1/...` from a Worker
@@ -54,7 +57,7 @@ protection), and `main` must allow the author to merge. Both are prerequisites o
 2. Dispatch the workflow from `main` with the exact current 40-character SHA. It rejects stale
    SHAs, validates identity configuration, deploys with `--strict --tag <sha>`, and runs
    `scripts/verify-release.mjs` (one version at 100%, tag and message equal the SHA, secret and
-   assets bindings present, issuer, import allowlist, compatibility date and flags as pinned, workers.dev and
+   assets bindings present, issuer, import and catalog allowlists, compatibility date and flags as pinned, workers.dev and
    previews off).
 3. Private readiness probe (needs a service binding or Doorway; do not enable workers.dev):
    `GET https://tools.ailab.gc.cuny.edu/bibliography/health` with a valid signed app and Gateway leg.

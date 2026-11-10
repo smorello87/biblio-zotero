@@ -1,6 +1,6 @@
 # Bibliography to Zotero
 
-A CUNY AI Lab web tool that turns a bibliography into records you can import into Zotero. Paste citations, upload a TXT, DOCX, PDF, PNG or JPG file, or import from an enabled bibliography website. Check where each citation begins, then convert. The tool returns CSL-JSON or RIS, shows each record beside its original citation for review, and can suggest ISBN and library metadata from Open Library.
+A CUNY AI Lab web tool that turns a bibliography into records you can import into Zotero. Paste citations, upload a TXT, DOCX, PDF, PNG or JPG file, or import from an enabled bibliography website. Check where each citation begins, then convert. The tool returns CSL-JSON or RIS, shows each record beside its original citation for review, and can look entries up in Open Library, Crossref, Google Books and Wikidata to suggest missing metadata for review.
 
 ## Where it runs
 

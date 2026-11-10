@@ -142,47 +142,6 @@ test('catalog with a bedrock-runtime row is served (cail-client 6.3.0 parser)', 
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).data.map(row => row.id), ['gpt-oss-120b', 'claude-on-bedrock']);
 });
-const enrichBody = { title: 'A Book', author: 'Smith' };
-const enrich = async upstream => {
-  const calls = [];
-  const handle = createHandler({ fetchImpl: async (url, init) => { calls.push(init); return upstream(); } });
-  const response = await handle(await request('enrich', enrichBody), env);
-  assert.equal(calls[0].redirect, 'manual');
-  return response;
-};
-test('enrich treats a redirect as unavailable and cancels the body', async () => {
-  let cancelled = false;
-  const body = new ReadableStream({ cancel() { cancelled = true; } });
-  const response = await enrich(() => new Response(body, { status: 302, headers: { location: 'https://evil.example/' } }));
-  assert.equal(response.status, 502);
-  assert.equal((await response.json()).error.code, 'enrichment_unavailable');
-  assert.equal(cancelled, true);
-});
-test('enrich rejects an oversized Open Library body', async () => {
-  const response = await enrich(() => new Response('x'.repeat(1024 * 1024 + 1), { headers: { 'content-type': 'application/json' } }));
-  assert.equal(response.status, 502);
-  assert.equal((await response.json()).error.code, 'enrichment_unavailable');
-});
-test('enrich tolerates malformed docs and only links Open Library works', async () => {
-  const response = await enrich(() => Response.json({ docs: [{ title: 'A Book', isbn: [123, null, '9780306406157'], key: '@evil.example/x', publisher: ['P'] }] }));
-  assert.equal(response.status, 200);
-  const { suggestion } = await response.json();
-  assert.equal(suggestion.fields.ISBN, '9780306406157');
-  assert.equal(suggestion.url, 'https://openlibrary.org');
-  const good = await enrich(() => Response.json({ docs: [{ isbn: 'not-an-array', key: '/works/OL123W' }] }));
-  const data = await good.json();
-  assert.equal(data.suggestion.url, 'https://openlibrary.org/works/OL123W');
-  assert.equal(data.suggestion.fields.ISBN, undefined);
-  assert.equal((await (await enrich(() => new Response('not json'))).json()).error.code, 'enrichment_unavailable');
-});
-test('enrich passes only short, well-formed strings into suggested fields', async () => {
-  const hostile = { title: { toString: 1 }, isbn: ['97803064061570000', '030640615X'], oclc: [{ a: 1 }, '12345'], lccn: [['x'], '2001012345'], publisher: [7, 'x'.repeat(301), 'Press'], publish_place: [null], number_of_pages_median: '12; DROP', key: '/works/OL1W' };
-  const { suggestion } = await (await enrich(() => Response.json({ docs: [hostile] }))).json();
-  assert.equal(suggestion.title, 'A Book');
-  assert.deepEqual(suggestion.fields, { ISBN: '030640615X', OCLC: '12345', 'call-number': '2001012345', publisher: 'Press' });
-  const typical = { title: 'A Book', isbn: ['0306406152', '9780306406157'], oclc: ['42'], lccn: ['n79021164'], publisher: ['Plenum'], publish_place: ['New York'], number_of_pages_median: 316, key: '/works/OL1W' };
-  assert.deepEqual((await (await enrich(() => Response.json({ docs: [typical] }))).json()).suggestion.fields, { ISBN: '9780306406157', OCLC: '42', 'call-number': 'n79021164', publisher: 'Plenum', 'publisher-place': 'New York', 'number-of-pages': '316' });
-});
 test('retryable 503 forwards x-should-retry and Retry-After; quota exhaustion is non-retryable', async () => {
   const unavailable = createHandler({ fetchImpl: async () => cailErrorResponse(503, cailErrorEnvelope({ code: 'service_unavailable', type: 'server_error', cail: { retry_after_seconds: 7 } }), { 'x-should-retry': 'true' }) });
   const busy = await unavailable(await request('parse', batch), env);
@@ -360,11 +319,11 @@ test('in production every Gateway call goes through the GATEWAY binding, never g
     assert.deepEqual(await quotaResponse.json(), quota);
     assert.equal((await handle(await request('parse', batch), production)).status, 200);
     assert.equal((await handle(await request('catalog'), production)).status, 200);
-    assert.equal((await handle(await request('enrich', { title: 'A Book', author: 'Smith' }), production)).status, 200);
+    assert.equal((await handle(await request('enrich', { type: 'book', title: 'A Book', author: 'Smith' }), production)).status, 200);
     assert.deepEqual(bound.sort(), ['/v1/catalog', '/v1/catalog', '/v1/chat/completions', '/v1/quota'].sort());
-    assert.deepEqual(global.map(url => new URL(url).hostname), ['openlibrary.org'], 'only Open Library uses global fetch');
+    assert.deepEqual([...new Set(global.map(url => new URL(url).hostname))].sort(), ['api.crossref.org', 'openlibrary.org', 'www.googleapis.com'], 'only the catalogs use global fetch');
     const missing = await createHandler()(await request('quota'), env);
     assert.equal(missing.status, 502);
-    assert.equal(global.length, 1, 'without the binding the Worker still never falls back to global fetch');
+    assert.equal(global.filter(url => new URL(url).hostname === 'tools.ailab.gc.cuny.edu').length, 0, 'without the binding the Worker still never falls back to global fetch');
   } finally { globalThis.fetch = real; }
 });

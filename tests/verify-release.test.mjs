@@ -18,6 +18,7 @@ const good = () => ({
         { name: 'CAIL_IDENTITY_JWKS', type: 'secret_text' },
         { name: 'CAIL_IDENTITY_ISSUER', type: 'plain_text', text: 'https://tools.ailab.gc.cuny.edu/cail-sso' },
         { name: 'SCRAPE_HOSTS', type: 'plain_text', text: 'italianamericanimprints.omeka.net' },
+        { name: 'CATALOG_HOSTS', type: 'plain_text', text: 'openlibrary.org,api.crossref.org,www.googleapis.com,www.wikidata.org' },
         { name: 'ASSETS', type: 'assets' },
         { name: 'GATEWAY', type: 'service', service: 'cail-model-api' },
       ],
@@ -45,6 +46,8 @@ test('release readback fails when the Gateway binding, the request-signal flag, 
   const cases = [
     [fixture => { fixture.version.resources.bindings = fixture.version.resources.bindings.filter(binding => binding.name !== 'GATEWAY'); }, /GATEWAY service binding/],
     [fixture => { fixture.version.resources.bindings.find(binding => binding.name === 'GATEWAY').service = 'cail-gateway'; }, /GATEWAY service binding/],
+    [fixture => { fixture.version.resources.bindings.find(binding => binding.name === 'CATALOG_HOSTS').text += ',evil.example'; }, /Catalog allowlist/],
+    [fixture => { fixture.version.resources.bindings = fixture.version.resources.bindings.filter(binding => binding.name !== 'CATALOG_HOSTS'); }, /Catalog allowlist/],
     [fixture => { fixture.version.resources.script_runtime.compatibility_flags = []; }, /compatibility flags/],
     [fixture => { delete fixture.version.resources.script_runtime.compatibility_flags; }, /compatibility flags/],
     [fixture => { fixture.version.resources.script_runtime.compatibility_flags.push('nodejs_compat'); }, /compatibility flags/],
@@ -58,4 +61,13 @@ test('release readback fails when the Gateway binding, the request-signal flag, 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, message);
   }
+});
+test('wrangler.toml, the Worker and the release check agree on the catalog allowlist', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const toml = await readFile('wrangler.toml', 'utf8');
+  const worker = await readFile('server/worker.js', 'utf8');
+  const verifier = await readFile('scripts/verify-release.mjs', 'utf8');
+  const configured = toml.match(/^CATALOG_HOSTS = "([^"]+)"$/m)[1];
+  assert.deepEqual(configured.split(','), JSON.parse(worker.match(/const CATALOG_HOSTS = (\[[^\]]+\]);/)[1].replaceAll("'", '"')));
+  assert.ok(verifier.includes(`binding.text === '${configured}'`));
 });

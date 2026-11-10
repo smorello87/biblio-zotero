@@ -15,6 +15,8 @@ run_worker_first = true
 [vars]
 CAIL_IDENTITY_ISSUER = "https://tools.ailab.gc.cuny.edu/cail-sso"
 SCRAPE_HOSTS = "italianamericanimprints.omeka.net"
+# Catalog lookups (/api/enrich). Narrows the fixed list in server/worker.js; cannot add hosts.
+CATALOG_HOSTS = "openlibrary.org,api.crossref.org,www.googleapis.com,www.wikidata.org"
 # Install CAIL_IDENTITY_JWKS as the exact pinned verifier key set before release.
 # Doorway must be the only ingress, via a service binding with current Admission
 # checks and both cail:bibliography and cail:gateway JWT legs.

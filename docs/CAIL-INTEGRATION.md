@@ -56,6 +56,30 @@ The Doorway-side work is separate: register a protected `/bibliography` page
 and `/bibliography/api` route with audience `cail:bibliography`, gateway
 identity enabled, current Admission checks, and the canonical tools origin.
 
+## Outbound requests besides the Gateway
+
+The Worker makes ordinary `fetch()` calls to two fixed groups of public hosts, never
+to an address a person supplies:
+
+- **Website import** (`/api/source`): only `SCRAPE_HOSTS`
+  (`italianamericanimprints.omeka.net`), redirects re-checked.
+- **Catalog lookup** (`/api/enrich`, optional): `openlibrary.org`, `api.crossref.org`,
+  `www.googleapis.com` (Google Books, keyless) and `www.wikidata.org`, fixed in
+  `server/worker.js` and narrowed by the `CATALOG_HOSTS` variable. Each request is
+  HTTPS-only with manual redirects re-checked against the list (at most two),
+  an 8 s deadline of its own, a bounded JSON body, and a User-Agent naming the tool
+  and `mailto:ailab@gc.cuny.edu` (Wikidata's policy, Crossref's polite pool). The
+  page sends only an entry's type, title, first creator, year, DOI/ISBN, series or
+  site name and URL; the URL is compared with Wikidata's official website, never
+  fetched. Matching, merging and failure wording follow the Lab's Zotero plugin
+  (CUNY-AI-Lab/zotero-autofill v1.1.2): books go to Open Library, Crossref (book
+  types) and Google Books in parallel, then Open Library's free-text search as a
+  last resort; articles, chapters, papers, reports and theses to Crossref by type;
+  a DOI to Crossref directly; films, broadcasts, recordings, software, datasets,
+  maps and web pages or digital projects to Wikidata (`wbsearchentities` plus
+  `wbgetentities`). A source's 429, 5xx or timeout is reported by name and never
+  shown as "not found". Types no catalog covers are reported without a request.
+
 ## Verification boundary
 
 Local automated tests can exercise the real identity verifier with signed test

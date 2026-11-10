@@ -166,3 +166,38 @@ export function toRIS(items) {
     return result + line('ER', '');
   }).join('\n');
 }
+
+// Which catalogs can describe an entry of this CSL type (shared by the page and the Worker).
+// Books: Open Library, Crossref (book types) and Google Books. Articles, chapters, papers, reports,
+// theses and preprints: Crossref, by type. Films, broadcasts, recordings, software, datasets, maps and
+// web pages or digital projects: Wikidata. A DOI is looked up in Crossref whatever the type.
+const CROSSREF_ARTICLE_TYPES = ['journal-article', 'book-chapter', 'proceedings-article'];
+const CROSSREF_TYPES = { 'article-journal': CROSSREF_ARTICLE_TYPES, chapter: CROSSREF_ARTICLE_TYPES, 'paper-conference': CROSSREF_ARTICLE_TYPES, report: ['report'], thesis: ['dissertation'], article: ['posted-content'] };
+const MEDIA_TYPES = ['motion_picture', 'broadcast', 'song', 'musical_score', 'software', 'dataset', 'map', 'webpage', 'post', 'post-weblog'];
+export function lookupPlan(type, { doi = false } = {}) {
+  if (['book', 'classic', 'collection'].includes(type)) return { group: 'book', sources: ['Open Library', 'Crossref', 'Google Books'] };
+  if (CROSSREF_TYPES[type]) return { group: 'article', sources: ['Crossref'], crossrefTypes: CROSSREF_TYPES[type] };
+  if (MEDIA_TYPES.includes(type)) return { group: 'media', sources: doi ? ['Crossref', 'Wikidata'] : ['Wikidata'] };
+  return doi ? { group: 'doi', sources: ['Crossref'] } : { group: 'none', sources: [] };
+}
+
+// What the page sends for catalog lookup: identifying fields only, never the citation text.
+const CREATOR_ROLES = ['author', 'director', 'composer', 'performer', 'editor', 'host'];
+export function lookupQuery(item) {
+  const creator = CREATOR_ROLES.map(role => item[role]?.[0]).find(Boolean);
+  const dates = item.issued?.['date-parts'];
+  const query = { type: item.type, title: item.title, author: creator?.family || creator?.literal || '', year: dates?.[0]?.[0], yearEnd: dates?.[1]?.[0], doi: item.DOI, isbn: item.ISBN, container: item['container-title'], url: item.URL };
+  return Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined && value !== ''));
+}
+/** Fill only what the record lacks; the result must still be a valid record, or nothing changes. */
+export function applySuggestion(item, fields) {
+  const merged = { ...item };
+  for (const [key, value] of Object.entries(fields || {})) if (merged[key] === undefined || merged[key] === '' || (Array.isArray(merged[key]) && !merged[key].length)) merged[key] = value;
+  const valid = validateItem(merged);
+  return valid ? { ...valid, ...(item.id ? { id: item.id } : {}) } : null;
+}
+const CATALOG_LINK_HOSTS = ['openlibrary.org', 'doi.org', 'books.google.com', 'www.wikidata.org'];
+/** A catalog record link the page may show: HTTPS on a known catalog host, else null. */
+export function catalogLink(url) {
+  try { const parsed = new URL(url); return parsed.protocol === 'https:' && CATALOG_LINK_HOSTS.includes(parsed.hostname) && !parsed.username && !parsed.password ? parsed.href : null; } catch { return null; }
+}

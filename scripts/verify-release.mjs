@@ -26,6 +26,7 @@ assert(bindings.some(binding => binding.name === 'ASSETS' && binding.type === 'a
 // Same-zone global fetch() to the Gateway URL reaches the zone origin (404); only this binding reaches it.
 assert(bindings.some(binding => binding.name === 'GATEWAY' && binding.type === 'service' && binding.service === 'cail-model-api'), 'GATEWAY service binding to cail-model-api is absent');
 assert(bindings.some(binding => binding.name === 'SCRAPE_HOSTS' && binding.text === 'italianamericanimprints.omeka.net'), 'Import allowlist differs from the pinned host');
+assert(bindings.some(binding => binding.name === 'CATALOG_HOSTS' && binding.text === 'openlibrary.org,api.crossref.org,www.googleapis.com,www.wikidata.org'), 'Catalog allowlist differs from the pinned hosts');
 assert(version.resources.script_runtime.compatibility_date === '2026-09-07', 'Unexpected runtime compatibility date');
 // Without enable_request_signal (default only from 2026-11-17) a caller abort never reaches the Gateway call.
 // `wrangler versions view` (4.130.0) reads the same GET .../versions/{id} field, resources.script_runtime

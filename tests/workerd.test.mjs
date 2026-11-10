@@ -7,38 +7,49 @@ import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { createTestIdentityIssuer, TEST_SUBJECTS } from '@cuny-ai-lab/cail-identity/testing';
 
-// Runs the bundled Worker in real workerd with the production compatibility date and no flags.
-// All upstream traffic is answered by a stub; nothing leaves the machine.
-test('enrich returns 200 under workerd with a mocked Open Library', async () => {
+// Runs the bundled Worker in real workerd with the production compatibility date and flags. All
+// upstream traffic is answered by a stub replaying recorded catalog replies; nothing leaves the machine.
+test('catalog lookups run under workerd: book sources in parallel, Wikidata for a film, polite User-Agent, no redirect off the allowlist', async () => {
+  const flags = JSON.parse((await readFile('wrangler.toml', 'utf8')).match(/^compatibility_flags = (\[.*\])$/m)[1]);
+  const vars = Object.fromEntries([...(await readFile('wrangler.toml', 'utf8')).matchAll(/^(CATALOG_HOSTS|SCRAPE_HOSTS) = "([^"]*)"$/gm)].map(([, key, value]) => [key, value]));
+  const replies = { ...JSON.parse(await readFile('tests/fixtures/catalog-replies.json', 'utf8')).replies, ...JSON.parse(await readFile('tests/fixtures/wikidata-survey.json', 'utf8')).replies };
   const issuer = await createTestIdentityIssuer();
   const directory = await mkdtemp(join(tmpdir(), 'bibliography-workerd-'));
   const outfile = join(directory, 'worker.mjs');
   await build({ entryPoints: ['server/worker.js'], outfile, bundle: true, format: 'esm', platform: 'neutral', external: ['cloudflare:workers', 'node:*'] });
   const upstream = [];
   const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [{
-    modules: true, scriptPath: outfile, modulesRoot: '/', compatibilityDate: '2026-09-07',
-    bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson },
+    modules: true, scriptPath: outfile, modulesRoot: '/', compatibilityDate: '2026-09-07', compatibilityFlags: flags,
+    bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson, ...vars },
     outboundService: async request => {
-      upstream.push(request.url);
-      return Response.json({ docs: [{ title: 'A Book', isbn: ['9780306406157'], key: '/works/OL1W', publisher: ['Press'] }] });
+      upstream.push({ url: request.url, agent: request.headers.get('user-agent'), redirect: request.redirect });
+      if (request.url.includes('title=Redirected')) return new Response(null, { status: 302, headers: { location: 'https://evil.example/' } });
+      const reply = replies[request.url];
+      if (reply === undefined) return new Response('unexpected', { status: 500 });
+      if (reply === null) return new Response('missing', { status: 404 });
+      return typeof reply.status === 'number' ? new Response('refused', { status: reply.status }) : Response.json(reply);
     },
   }] }));
-  try {
-    const response = await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/api/enrich', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json', origin: 'https://tools.ailab.gc.cuny.edu',
-        'x-cail-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:bibliography' }),
-        'x-cail-gateway-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:gateway', subject: TEST_SUBJECTS.alice }),
-      },
-      body: JSON.stringify({ title: 'A Book', author: 'Smith' }),
-    });
+  const enrich = async body => {
+    const response = await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/api/enrich', { method: 'POST', body: JSON.stringify(body), headers: {
+      'content-type': 'application/json', origin: 'https://tools.ailab.gc.cuny.edu',
+      'x-cail-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:bibliography' }),
+      'x-cail-gateway-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:gateway', subject: TEST_SUBJECTS.alice }) } });
     const text = await response.text();
     assert.equal(response.status, 200, text);
-    const { suggestion } = JSON.parse(text);
-    assert.equal(suggestion.fields.ISBN, '9780306406157');
-    assert.equal(suggestion.url, 'https://openlibrary.org/works/OL1W');
-    assert.match(upstream[0], /^https:\/\/openlibrary\.org\/search\.json\?/);
+    return JSON.parse(text);
+  };
+  try {
+    const book = await enrich({ type: 'book', title: 'The Souls of Black Folk', author: 'Du Bois', year: 1903 });
+    assert.equal(book.status, 'matched');
+    assert.equal(book.warning, 'Google Books refused the request (rate limit).');
+    const film = await enrich({ type: 'motion_picture', title: 'The Shawshank Redemption', author: 'Darabont', year: 1994 });
+    assert.equal(film.suggestion.url, 'https://www.wikidata.org/wiki/Q172241');
+    const redirected = await enrich({ type: 'book', title: 'Redirected', author: 'Smith' });
+    assert.match(redirected.message, /Open Library redirected to an address this tool does not use/);
+    assert.ok(upstream.every(call => call.agent === 'CUNY-AI-Lab-Bibliography/1.0 (https://tools.ailab.gc.cuny.edu/bibliography/; mailto:ailab@gc.cuny.edu)'));
+    assert.ok(upstream.every(call => ['openlibrary.org', 'api.crossref.org', 'www.googleapis.com', 'www.wikidata.org'].includes(new URL(call.url).hostname)), 'only catalog hosts');
+    assert.ok(!upstream.some(call => call.url.startsWith('https://evil.example')), 'the redirect was not followed');
   } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
 });
 
