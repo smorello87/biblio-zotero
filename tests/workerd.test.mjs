@@ -99,6 +99,11 @@ test('wrangler.toml enables request.signal and an aborted caller aborts the Gate
   const status = await gatewayAfterClientAbort(compatibilityFlags);
   assert.deepEqual(status, { started: 1, aborted: 1 });
 });
+test('control: without enable_request_signal the same abort never reaches the Gateway fetch', async () => {
+  // Shows the harness can tell the difference, so the test above is evidence for the flag.
+  const status = await gatewayAfterClientAbort(compatibilityFlags.filter(flag => flag !== 'enable_request_signal'));
+  assert.deepEqual(status, { started: 1, aborted: 0 });
+});
 test('the licence is served as text/plain from the built assets under workerd', async () => {
   const { execFileSync } = await import('node:child_process');
   execFileSync(process.execPath, ['scripts/build.mjs'], { stdio: 'ignore' });
