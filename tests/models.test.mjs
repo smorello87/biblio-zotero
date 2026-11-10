@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { modelMenus, chooseModel, FALLBACK_PARSE, FALLBACK_VISION, PREFERRED_PARSE, PREFERRED_VISION, MIN_CONTEXT_TOKENS } from '../models.js';
+import { modelMenus, chooseModel, FALLBACK_PARSE, FALLBACK_VISION, MIN_CONTEXT_TOKENS } from '../models.js';
 
 const row = (id, order, capabilities, extra = {}) => ({ id, order, capabilities, recommended: true, status: 'active', context_length: 128000, modality: 'text', ...extra });
 const mixed = { object: 'list', data: [
@@ -37,18 +37,30 @@ test('built-in IDs are used when the catalog is unavailable or has no usable row
     assert.deepEqual(menus.parse, FALLBACK_PARSE);
     assert.deepEqual(menus.vision, FALLBACK_VISION);
   }
-  assert.deepEqual(FALLBACK_PARSE.map(model => model.id), ['gpt-oss-120b', 'gemma-4-26b-a4b-it', 'qwen3-vl-235b-a22b-instruct']);
+  assert.deepEqual(FALLBACK_PARSE.map(model => model.id), ['deepseek-v4.1-flash-1017', 'gpt-oss-120b', 'gemma-4-26b-a4b-it', 'qwen3-vl-235b-a22b-instruct']);
+  assert.deepEqual(FALLBACK_VISION.map(model => model.id), ['deepseek-v4.1-flash-1017', 'gemma-4-26b-a4b-it', 'qwen3-vl-235b-a22b-instruct']);
 });
-test('a selection is kept only while it is offered; otherwise the preferred, then the first model', () => {
-  assert.equal(chooseModel('gemma-4-26b-a4b-it', ['gpt-oss-120b', 'gemma-4-26b-a4b-it'], PREFERRED_PARSE), 'gemma-4-26b-a4b-it');
-  assert.equal(chooseModel('llama-guard-3-8b', ['glm-5.3', 'gpt-oss-120b', 'other'], PREFERRED_PARSE), 'gpt-oss-120b');
-  assert.equal(chooseModel('other', ['glm-5.3', 'other'], PREFERRED_PARSE), 'other');
-  assert.equal(chooseModel('gone', ['deepseek-v4.1-flash-1017', 'gemma-4-26b-a4b-it'], PREFERRED_VISION), 'gemma-4-26b-a4b-it');
-  assert.equal(chooseModel('gone', ['a', 'b'], PREFERRED_VISION), 'a');
+test('the default is the first offered model; a chosen model is kept only while it is offered', () => {
+  assert.equal(chooseModel('', ['deepseek-v4.1-flash-1017', 'gpt-oss-120b']), 'deepseek-v4.1-flash-1017');
+  assert.equal(chooseModel('gemma-4-26b-a4b-it', ['gpt-oss-120b', 'gemma-4-26b-a4b-it']), 'gemma-4-26b-a4b-it');
+  assert.equal(chooseModel('llama-guard-3-8b', ['glm-5.3', 'gpt-oss-120b', 'other']), 'glm-5.3');
+  assert.equal(chooseModel('other', ['glm-5.3', 'other']), 'other');
+  // The rule follows the catalog order, so a new top recommendation becomes the default with no code change.
+  const reordered = modelMenus({ data: [{ id: 'newer-model', order: 0, recommended: true, status: 'active', capabilities: ['text-generation', 'vision'], context_length: 128000 }, { id: 'deepseek-v4.1-flash-1017', order: 1, recommended: true, status: 'active', capabilities: ['text-generation', 'vision', 'reasoning'], context_length: 1048576 }] });
+  assert.equal(chooseModel('', reordered.parse.map(model => model.id)), 'newer-model');
 });
 test('the live catalog snapshot of 2026-11-09 yields the documented menus', async () => {
   const catalog = JSON.parse(await readFile(new URL('./fixtures/catalog-2026-11-09.json', import.meta.url), 'utf8'));
   const { parse, vision } = modelMenus(catalog);
   assert.deepEqual(parse.map(model => model.id), ['deepseek-v4.1-flash-1017', 'glm-5.3', 'qwen3.8-27b', 'gpt-oss-120b', 'gemma-4-26b-a4b-it', 'mistral-large-3-675b-instruct']);
   assert.deepEqual(vision.map(model => model.id), ['deepseek-v4.1-flash-1017', 'qwen3.8-27b', 'gemma-4-26b-a4b-it', 'mistral-large-3-675b-instruct']);
+  // The default rule resolves to the fallback list's first entry, so the page agrees with or without the catalog.
+  assert.equal(chooseModel('', parse.map(model => model.id)), FALLBACK_PARSE[0].id);
+  assert.equal(chooseModel('', vision.map(model => model.id)), FALLBACK_VISION[0].id);
+});
+test('the built-in page options match the fallback lists, first option first', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const options = id => [...html.match(new RegExp(`<select id="${id}">([\\s\\S]*?)</select>`))[1].matchAll(/<option value="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(options('model-select'), [...FALLBACK_PARSE.map(model => model.id), 'other']);
+  assert.deepEqual(options('vision-model-select'), FALLBACK_VISION.map(model => model.id));
 });

@@ -1,7 +1,7 @@
 import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
 import { createApi } from './api.js';
-import { modelMenus, chooseModel, PREFERRED_PARSE, PREFERRED_VISION } from './models.js';
+import { modelMenus, chooseModel } from './models.js';
 
 const $ = id => document.getElementById(id);
 const state = { records: [], controller: null, busy: false, page: 0, model: '', enrich: false };
@@ -53,16 +53,18 @@ async function refreshQuota() {
     $('quota-content').replaceChildren(text('p', 'You can prepare and review your bibliography here. A connected CUNY session is required for AI conversion.', 'help'));
   } finally { $('refresh-quota').disabled = false; }
 }
-function fillSelect(select, models, preferred, extra = []) {
-  const current = select.value;
+// Only a selection the person made survives a menu rebuild; the built-in first option does not, so the
+// catalog's default rule applies on first load.
+function fillSelect(select, models, extra = []) {
+  const chosen = select.dataset.chosen === 'true' ? select.value : '';
   select.replaceChildren(...[...models.map(model => [model.id, model.label]), ...extra].map(([value, label]) => { const option = document.createElement('option'); option.value = value; option.textContent = label; return option; }));
-  select.value = chooseModel(current, [...select.options].map(option => option.value), preferred);
+  select.value = chooseModel(chosen, [...select.options].map(option => option.value));
 }
 async function loadCatalog() {
   try {
     const menus = modelMenus(await api('catalog'));
-    fillSelect($('model-select'), menus.parse, PREFERRED_PARSE, [['other', 'Other Gateway model ID']]);
-    fillSelect($('vision-model-select'), menus.vision, PREFERRED_VISION);
+    fillSelect($('model-select'), menus.parse, [['other', 'Other Gateway model ID']]);
+    fillSelect($('vision-model-select'), menus.vision);
     display('custom-model-input', $('model-select').value === 'other');
     $('gateway-models').replaceChildren(...menus.suggestions.map(model => { const option = document.createElement('option'); option.value = model.id; option.label = model.label; return option; }));
   } catch { /* Discovery is informational; the built-in menus and exact model IDs remain usable. */ }
@@ -227,7 +229,8 @@ $('file-field').addEventListener('change', () => {
   $('vision-help').textContent = isImage ? 'The image will be sent to the selected CAIL vision model. This uses your shared quota.' : 'OCR uses your shared CAIL quota. Leave it off for PDFs with selectable text.';
   $('use-vision-ocr').checked = isImage;
 });
-$('model-select').addEventListener('change', () => display('custom-model-input', $('model-select').value === 'other'));
+$('model-select').addEventListener('change', () => { $('model-select').dataset.chosen = 'true'; display('custom-model-input', $('model-select').value === 'other'); });
+$('vision-model-select').addEventListener('change', () => { $('vision-model-select').dataset.chosen = 'true'; });
 $('example-btn').addEventListener('click', () => { $('text-field').value = 'Douglass, Frederick. 1845. Narrative of the Life of Frederick Douglass, an American Slave. Boston: Anti-Slavery Office.\n\nDu Bois, W. E. B. 1903. The Souls of Black Folk. Chicago: A. C. McClurg & Co.\n\nWoolf, Virginia. 1929. A Room of One’s Own. London: Hogarth Press.'; $('text-field').focus(); });
 $('review-btn').addEventListener('click', prepare);
 $('review-text').addEventListener('input', updateCount);

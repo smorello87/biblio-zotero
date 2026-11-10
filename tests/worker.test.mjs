@@ -61,13 +61,13 @@ test('all curated model options reach Gateway unchanged; legacy prefixes are rej
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   const handle = createHandler({ fetchImpl: async (url, init) => {
     const body = JSON.parse(init.body);
-    assert.ok(['gpt-oss-120b', 'gemma-4-26b-a4b-it', 'qwen3-vl-235b-a22b-instruct'].includes(body.model));
+    assert.ok(['deepseek-v4.1-flash-1017', 'gpt-oss-120b', 'gemma-4-26b-a4b-it', 'qwen3-vl-235b-a22b-instruct'].includes(body.model));
     return Response.json({ choices: [{ message: { content: '{"items":[]}' } }] });
   } });
   for (const [selector, path] of [['model-select', 'parse'], ['vision-model-select', 'ocr']]) {
     const options = html.match(new RegExp(`<select id="${selector}">([\\s\\S]*?)</select>`))[1];
     const models = [...options.matchAll(/<option value="([^"]+)"/g)].map(match => match[1]).filter(model => model !== 'other');
-    assert.equal(models.length, path === 'parse' ? 3 : 2);
+    assert.equal(models.length, path === 'parse' ? 4 : 3);
     for (const model of models) {
       const body = path === 'parse' ? { ...batch, model } : { model, image: 'data:image/png;base64,aGVsbG8=' };
       assert.equal((await handle(await request(path, body), env)).status, 200);
@@ -215,6 +215,7 @@ test('output budget and reasoning controls follow the catalog row', async () => 
   // Shapes taken from the public catalog on 2026-11-09.
   const rows = [
     ['gpt-oss-120b', ['text-generation', 'function-calling', 'reasoning', 'structured-output'], { context_length: 128000 }],
+    ['deepseek-v4.1-flash-1017', ['text-generation', 'function-calling', 'reasoning', 'vision'], { context_length: 1048576 }],
     ['gemma-4-26b-a4b-it', ['text-generation', 'function-calling', 'reasoning', 'vision'], { context_length: 256000 }],
     ['qwq-32b', ['text-generation', 'reasoning'], { context_length: 12000 }],
     ['kimi-k2.5', ['text-generation', 'vision', 'reasoning'], { provider: 'bedrock-mantle', context_length: 262144 }],
@@ -234,6 +235,9 @@ test('output budget and reasoning controls follow the catalog row', async () => 
   // Reasoning: 4,000 headroom + 250 per entry (parse) or 4,000 (OCR), never above 10,000 or half the context.
   assert.deepEqual(await sent('gpt-oss-120b'), { max_tokens: 4250, ...thinkingOff });
   assert.deepEqual(await sent('gpt-oss-120b', 'parse', 25), { max_tokens: 10000, ...thinkingOff });
+  // The default model (2026-11-10) for both parse and OCR.
+  assert.deepEqual(await sent('deepseek-v4.1-flash-1017', 'parse', 25), { max_tokens: 10000, ...thinkingOff });
+  assert.deepEqual(await sent('deepseek-v4.1-flash-1017', 'ocr'), { max_tokens: 8000, ...thinkingOff });
   assert.deepEqual(await sent('gemma-4-26b-a4b-it', 'ocr'), { max_tokens: 8000, ...thinkingOff });
   assert.deepEqual(await sent('qwq-32b', 'parse', 25), { max_tokens: 6000, ...thinkingOff });
   // reasoning_effort is Gateway-gated on the reasoning capability; enable_thinking only on Workers AI.
