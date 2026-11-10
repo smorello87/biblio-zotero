@@ -23,7 +23,10 @@ assert(bindings.some(binding => binding.name === 'CF_VERSION_METADATA' && bindin
 assert(bindings.some(binding => binding.name === 'CAIL_IDENTITY_JWKS' && binding.type === 'secret_text'), 'Pinned verifier secret is absent');
 assert(bindings.some(binding => binding.name === 'CAIL_IDENTITY_ISSUER' && binding.text === 'https://tools.ailab.gc.cuny.edu/cail-sso'), 'Issuer differs from canonical issuer');
 assert(bindings.some(binding => binding.name === 'ASSETS' && binding.type === 'assets'), 'Assets binding is absent');
+assert(bindings.some(binding => binding.name === 'SCRAPE_HOSTS' && binding.text === 'italianamericanimprints.omeka.net'), 'Import allowlist differs from the pinned host');
 assert(version.resources.script_runtime.compatibility_date === '2026-09-07', 'Unexpected runtime compatibility date');
+// Without enable_request_signal (default only from 2026-11-17) a caller abort never reaches the Gateway call.
+assert(JSON.stringify(version.resources.script_runtime.compatibility_flags) === JSON.stringify(['enable_request_signal']), 'Unexpected runtime compatibility flags');
 const subdomain = await read('/subdomain');
 assert(subdomain.enabled === false && subdomain.previews_enabled === false, 'Worker must have workers.dev and previews disabled');
 // A second read detects another deployment during verification.

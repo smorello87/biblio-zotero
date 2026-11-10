@@ -31,12 +31,12 @@ protection), and `main` must allow the author to merge. Both are prerequisites o
 - `main = "server/worker.js"`; `[assets] directory = "./dist"`, `binding = "ASSETS"`,
   `run_worker_first = true`.
 - `compatibility_date = "2026-09-07"` and `compatibility_flags = ["enable_request_signal"]`.
-  `verify-release.mjs` asserts the date. The flag is needed until a date of 2026-11-17 or
+  `verify-release.mjs` asserts the date and the exact flag list. The flag is needed until a date of 2026-11-17 or
   later makes it the default; without it a caller abort does not reach the Gateway call.
   Changing the date is an owner decision: re-run the workerd tests when you do.
 - `workers_dev = false` and `preview_urls = false` (the verifier fails otherwise).
 - `[vars] CAIL_IDENTITY_ISSUER = "https://tools.ailab.gc.cuny.edu/cail-sso"` (asserted by the verifier).
-- `[vars] SCRAPE_HOSTS` is the import allowlist (only `italianamericanimprints.omeka.net`).
+- `[vars] SCRAPE_HOSTS` is the import allowlist (only `italianamericanimprints.omeka.net`; asserted by the verifier).
 - `[version_metadata] binding = "CF_VERSION_METADATA"`.
 - The `CAIL_IDENTITY_JWKS` secret is not in the file; the release installs it.
 - No `account_id`, routes, or custom domain: the Worker has no public origin and is reached only by
@@ -49,7 +49,8 @@ protection), and `main` must allow the author to merge. Both are prerequisites o
 2. Dispatch the workflow from `main` with the exact current 40-character SHA. It rejects stale
    SHAs, validates identity configuration, deploys with `--strict --tag <sha>`, and runs
    `scripts/verify-release.mjs` (one version at 100%, tag and message equal the SHA, secret and
-   assets bindings present, issuer and compatibility date as pinned, workers.dev and previews off).
+   assets bindings present, issuer, import allowlist, compatibility date and flags as pinned, workers.dev and
+   previews off).
 3. Private readiness probe (needs a service binding or Doorway; do not enable workers.dev):
    `GET https://tools.ailab.gc.cuny.edu/bibliography/health` with a valid signed app and Gateway leg.
    Require `status: "ready"` and the `version_id` and `tag` of the release. Also confirm
