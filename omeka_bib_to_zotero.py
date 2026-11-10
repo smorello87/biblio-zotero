@@ -50,6 +50,7 @@ Zotero can import CSL‑JSON and RIS among other formats. See: https://www.zoter
 """
 from __future__ import annotations
 import argparse
+import getpass
 import json
 import os
 import re
@@ -1076,7 +1077,7 @@ def prompt_api_key(provider: Optional[str]) -> Optional[str]:
             return existing
 
     print(f"\nEnter {env_var}:")
-    return input("API Key: ").strip()
+    return getpass.getpass("API Key: ").strip()
 
 
 def prompt_max_entries() -> Optional[int]:
@@ -1196,7 +1197,7 @@ def main():
             ocr_api_key = os.getenv("OPENROUTER_API_KEY")
             if not ocr_api_key:
                 print("\nVision OCR requires an OpenRouter API key.")
-                ocr_api_key = input("Enter OpenRouter API Key: ").strip()
+                ocr_api_key = getpass.getpass("Enter OpenRouter API Key: ").strip()
                 if not ocr_api_key:
                     raise SystemExit("OpenRouter API key required for vision OCR")
                 os.environ["OPENROUTER_API_KEY"] = ocr_api_key
