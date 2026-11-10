@@ -19,6 +19,7 @@ const good = () => ({
         { name: 'CAIL_IDENTITY_ISSUER', type: 'plain_text', text: 'https://tools.ailab.gc.cuny.edu/cail-sso' },
         { name: 'SCRAPE_HOSTS', type: 'plain_text', text: 'italianamericanimprints.omeka.net' },
         { name: 'ASSETS', type: 'assets' },
+        { name: 'GATEWAY', type: 'service', service: 'cail-model-api' },
       ],
       script_runtime: { compatibility_date: '2026-09-07', compatibility_flags: ['enable_request_signal'] },
     },
@@ -40,8 +41,10 @@ test('release readback passes for the pinned configuration', async () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /control-plane readback passed/);
 });
-test('release readback fails when the request-signal flag, the date or the import allowlist drifts', async () => {
+test('release readback fails when the Gateway binding, the request-signal flag, the date or the import allowlist drifts', async () => {
   const cases = [
+    [fixture => { fixture.version.resources.bindings = fixture.version.resources.bindings.filter(binding => binding.name !== 'GATEWAY'); }, /GATEWAY service binding/],
+    [fixture => { fixture.version.resources.bindings.find(binding => binding.name === 'GATEWAY').service = 'cail-gateway'; }, /GATEWAY service binding/],
     [fixture => { fixture.version.resources.script_runtime.compatibility_flags = []; }, /compatibility flags/],
     [fixture => { delete fixture.version.resources.script_runtime.compatibility_flags; }, /compatibility flags/],
     [fixture => { fixture.version.resources.script_runtime.compatibility_flags.push('nodejs_compat'); }, /compatibility flags/],

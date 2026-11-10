@@ -1,0 +1,1 @@
+{"object":"quota","managed_by":"cloudflare","state":"estimated","unit":"microdollar","currency":"USD","limit":50000000,"estimated_used":105038,"estimated_remaining":49894962,"used_percent":0,"remaining_percent":100,"window_seconds":2592000,"window_technique":"fixed","calculated_at":1794285677}

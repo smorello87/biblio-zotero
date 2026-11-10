@@ -55,6 +55,9 @@ export default { async fetch(request) {
   await new Promise(resolve => { request.signal.addEventListener('abort', () => { aborted++; resolve(); }); setTimeout(resolve, 1500); });
   return new Response('late', { status: 503 });
 } };`;
+// What a global fetch() to the tool's own zone reaches in production: the zone origin, not the
+// Gateway Worker. Any Gateway call that does not use the GATEWAY binding gets this 404.
+const zoneOrigin = async () => new Response('<html>Not Found</html>', { status: 404, headers: { 'content-type': 'text/html' } });
 async function runWorker(flags) {
   const issuer = await createTestIdentityIssuer();
   const directory = await mkdtemp(join(tmpdir(), 'bibliography-workerd-'));
@@ -63,7 +66,7 @@ async function runWorker(flags) {
   const base = { modules: true, modulesRoot: '/', compatibilityDate: '2026-09-07', compatibilityFlags: flags };
   const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [
     { ...base, compatibilityFlags: ['enable_request_signal'], name: 'caller', script: callerScript, serviceBindings: { APP: 'bibliography' } },
-    { ...base, name: 'bibliography', scriptPath: outfile, bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson }, outboundService: 'gateway' },
+    { ...base, name: 'bibliography', scriptPath: outfile, bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson }, serviceBindings: { GATEWAY: 'gateway' }, outboundService: zoneOrigin },
     { ...base, name: 'gateway', compatibilityFlags: ['enable_request_signal'], script: gatewayScript },
   ] }));
   const headers = async () => ({
@@ -124,5 +127,34 @@ test('the licence is served as text/plain from the built assets under workerd', 
     assert.match(await response.text(), /GNU GENERAL PUBLIC LICENSE/);
     const html = await (await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/', { headers })).text();
     assert.match(html, /href="LICENSE\.txt"/);
+  } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
+});
+test('quota and parse reach the Gateway Worker through the GATEWAY binding while the zone origin answers 404', async () => {
+  const toml = await readFile('wrangler.toml', 'utf8');
+  assert.match(toml, /\[\[services\]\]\s*binding = "GATEWAY"\s*service = "cail-model-api"/);
+  const quota = await readFile('tests/fixtures/quota-2026-11-10.json', 'utf8');
+  const gateway = `export default { async fetch(request) {
+    const { pathname } = new URL(request.url);
+    if (!request.headers.get('x-cail-identity-jwt') && pathname !== '/v1/catalog') return new Response('no credential', { status: 401 });
+    if (pathname === '/v1/catalog') return Response.json({ object: 'list', data: [] });
+    if (pathname === '/v1/quota') return new Response(${JSON.stringify(quota)}, { headers: { 'content-type': 'application/json' } });
+    return Response.json({ choices: [{ message: { content: '{"items":[]}' }, finish_reason: 'stop' }] });
+  } };`;
+  const issuer = await createTestIdentityIssuer();
+  const directory = await mkdtemp(join(tmpdir(), 'bibliography-workerd-'));
+  const outfile = join(directory, 'worker.mjs');
+  await build({ entryPoints: ['server/worker.js'], outfile, bundle: true, format: 'esm', platform: 'neutral', external: ['cloudflare:workers', 'node:*'] });
+  const base = { modules: true, modulesRoot: '/', compatibilityDate: '2026-09-07', compatibilityFlags };
+  const runtime = new Miniflare(convertV4MiniflareOptions({ workers: [
+    { ...base, name: 'bibliography', scriptPath: outfile, bindings: { CAIL_IDENTITY_ISSUER: issuer.issuer, CAIL_IDENTITY_JWKS: issuer.jwksJson }, serviceBindings: { GATEWAY: 'gateway' }, outboundService: zoneOrigin },
+    { ...base, name: 'gateway', script: gateway },
+  ] }));
+  try {
+    const headers = async () => ({ 'content-type': 'application/json', origin: 'https://tools.ailab.gc.cuny.edu', 'x-cail-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:bibliography' }), 'x-cail-gateway-identity-jwt': await issuer.mintIdentityJwt({ audience: 'cail:gateway', subject: TEST_SUBJECTS.alice }) });
+    const quotaResponse = await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/api/quota', { headers: await headers() });
+    assert.equal(quotaResponse.status, 200, await quotaResponse.clone().text());
+    assert.deepEqual(await quotaResponse.json(), JSON.parse(quota));
+    const parse = await runtime.dispatchFetch('https://tools.ailab.gc.cuny.edu/bibliography/api/parse', { method: 'POST', headers: await headers(), body: JSON.stringify({ model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] }) });
+    assert.equal(parse.status, 200, await parse.clone().text());
   } finally { await runtime.dispose(); await rm(directory, { recursive: true, force: true }); }
 });

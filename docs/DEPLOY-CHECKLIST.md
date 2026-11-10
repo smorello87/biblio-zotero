@@ -38,6 +38,11 @@ protection), and `main` must allow the author to merge. Both are prerequisites o
 - `[vars] CAIL_IDENTITY_ISSUER = "https://tools.ailab.gc.cuny.edu/cail-sso"` (asserted by the verifier).
 - `[vars] SCRAPE_HOSTS` is the import allowlist (only `italianamericanimprints.omeka.net`; asserted by the verifier).
 - `[version_metadata] binding = "CF_VERSION_METADATA"`.
+- `[[services]] binding = "GATEWAY"`, `service = "cail-model-api"` (asserted by the verifier). Every Gateway call
+  (chat, quota, catalog) goes through it. A global `fetch()` to `https://tools.ailab.gc.cuny.edu/v1/...` from a Worker
+  in the same zone is routed to the zone's origin, not the Gateway Worker, and returns 404 (the 2026-11-09 outage).
+  `/bibliography/health` reads the public catalog through the binding and returns 503 `gateway_unavailable` if it
+  cannot, so the readiness probe after each release exercises the Gateway path.
 - The `CAIL_IDENTITY_JWKS` secret is not in the file; the release installs it.
 - No `account_id`, routes, or custom domain: the Worker has no public origin and is reached only by
   Doorway's service binding.

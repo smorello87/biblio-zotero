@@ -118,8 +118,8 @@ test('bare mount redirects authenticated GET and HEAD to the asset base, preserv
   }
   assert.equal((await handle(new Request('https://tools.ailab.gc.cuny.edu/bibliography'), env)).status, 401);
 });
-test('private readiness validates both verifier configurations and actual index asset availability', async () => {
-  const handle = createHandler({ fetchImpl: () => assert.fail('No Gateway calls expected') });
+test('private readiness validates both verifier configurations, actual index asset availability and the Gateway path', async () => {
+  const handle = createHandler({ fetchImpl: async url => { assert.equal(new URL(url).pathname, '/v1/catalog'); return catalogOf([]); } });
   const health = () => new Request('https://tools.ailab.gc.cuny.edu/bibliography/health');
   const assets = { fetch: async request => {
     assert.equal(new URL(request.url).pathname, '/');
@@ -128,6 +128,10 @@ test('private readiness validates both verifier configurations and actual index 
   for (const configuration of [{}, { ...env, CAIL_IDENTITY_JWKS: 'invalid', ASSETS: assets }, { ...env, CAIL_IDENTITY_ISSUER: 'https://wrong.example', ASSETS: assets }, env, { ...env, ASSETS: { fetch: async () => new Response('missing', { status: 404 }) } }]) {
     assert.equal((await handle(health(), configuration)).status, 503);
   }
+  const unreachable = createHandler({ fetchImpl: async () => new Response('<html>Not Found</html>', { status: 404, headers: { 'content-type': 'text/html' } }) });
+  const down = await unreachable(health(), { ...env, ASSETS: assets });
+  assert.equal(down.status, 503);
+  assert.equal((await down.json()).error.code, 'gateway_unavailable');
   const response = await handle(health(), { ...env, ASSETS: assets, CF_VERSION_METADATA: { id: 'tested-version', tag: 'tested-release' } });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: 'ready', version_id: 'tested-version', tag: 'tested-release' });
@@ -330,4 +334,33 @@ test('source import cancels unusable bodies and reports a redirect without Locat
   assert.deepEqual(await source([301, { location: 'https://evil.example/' }]), { status: 400, code: 'unsupported_source', cancelled: [301] });
   const upper = createHandler({ fetchImpl: async () => new Response('<p>x</p>', { headers: { 'content-type': 'TEXT/HTML; charset=utf-8' } }) });
   assert.equal((await (await upper(await request('source', { url: 'https://italianamericanimprints.omeka.net/x' }), env)).json()).html, true);
+});
+test('in production every Gateway call goes through the GATEWAY binding, never global fetch to the zone', async () => {
+  const real = globalThis.fetch;
+  const global = [], bound = [];
+  // A global fetch to the tool's own zone reaches the zone origin, which answers 404 (the 2026-11-09 outage).
+  globalThis.fetch = async (input, init) => { const url = String(input instanceof Request ? input.url : input); global.push(url); return new URL(url).hostname === 'tools.ailab.gc.cuny.edu' ? new Response('<html>Not Found</html>', { status: 404, headers: { 'content-type': 'text/html' } }) : Response.json({ docs: [] }); };
+  try {
+    const quota = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('./fixtures/quota-2026-11-10.json', import.meta.url), 'utf8'));
+    const GATEWAY = { fetch: async (input, init) => {
+      const url = new URL(String(input)); bound.push(url.pathname);
+      assert.ok(new Headers(init.headers).get('x-cail-identity-jwt') || url.pathname === '/v1/catalog');
+      if (url.pathname === '/v1/catalog') return catalogOf([['gpt-oss-120b', ['text-generation', 'reasoning']]]);
+      if (url.pathname === '/v1/quota') return Response.json(quota);
+      return Response.json({ choices: [{ message: { content: '{"items":[]}' }, finish_reason: 'stop' }] });
+    } };
+    const handle = createHandler();
+    const production = { ...env, GATEWAY };
+    const quotaResponse = await handle(await request('quota'), production);
+    assert.equal(quotaResponse.status, 200);
+    assert.deepEqual(await quotaResponse.json(), quota);
+    assert.equal((await handle(await request('parse', batch), production)).status, 200);
+    assert.equal((await handle(await request('catalog'), production)).status, 200);
+    assert.equal((await handle(await request('enrich', { title: 'A Book', author: 'Smith' }), production)).status, 200);
+    assert.deepEqual(bound.sort(), ['/v1/catalog', '/v1/catalog', '/v1/chat/completions', '/v1/quota'].sort());
+    assert.deepEqual(global.map(url => new URL(url).hostname), ['openlibrary.org'], 'only Open Library uses global fetch');
+    const missing = await createHandler()(await request('quota'), env);
+    assert.equal(missing.status, 502);
+    assert.equal(global.length, 1, 'without the binding the Worker still never falls back to global fetch');
+  } finally { globalThis.fetch = real; }
 });

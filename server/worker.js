@@ -66,8 +66,14 @@ async function verifierConfigs(env) {
   return configs.map(result => result.config);
 }
 
-async function readiness(env) {
+async function readiness(env, client) {
   await verifierConfigs(env);
+  // The Gateway is reachable only through the GATEWAY service binding: a global fetch() to
+  // tools.ailab.gc.cuny.edu from a Worker in the same zone goes to the zone's origin, not to the
+  // Gateway Worker, and answers 404. Reading the public catalog through the binding proves the path
+  // without a credential or any spend.
+  try { await client.getCatalogSnapshot({ modality: 'all', signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) }); }
+  catch { throw new AppError('gateway_unavailable', 'The model service is unreachable from this tool.', 503); }
   if (!env.ASSETS || typeof env.ASSETS.fetch !== 'function') throw new AppError('assets_unavailable', 'Application assets are unavailable.', 503);
   const asset = await env.ASSETS.fetch(new Request(`${ORIGIN}/`));
   const available = asset.ok && asset.headers.get('content-type')?.includes('text/html');
@@ -88,8 +94,17 @@ async function authenticate(request, env) {
   return { kind: 'jwt', token: keyring.gatewayJwt };
 }
 
-export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS } = {}) {
-  const client = createCailClient({ app: 'bibliography', fetchImpl });
+// fetchImpl reaches the public web (Open Library, enabled bibliography sites). Gateway calls go
+// through env.GATEWAY, a service binding to the Gateway Worker (cail-model-api); tests may pass
+// gatewayFetch, or a single fetchImpl for both.
+export function createHandler({ fetchImpl, gatewayFetch, deadlineMs = DEADLINE_MS, catalogTimeoutMs = CATALOG_TIMEOUT_MS } = {}) {
+  const publicFetch = fetchImpl ?? ((input, init) => fetch(input, init));
+  let binding = null;
+  const viaBinding = (input, init) => {
+    if (!binding) throw new TypeError('GATEWAY service binding is not configured.');
+    return binding.fetch(input, init);
+  };
+  const client = createCailClient({ app: 'bibliography', fetchImpl: gatewayFetch ?? fetchImpl ?? viaBinding });
   // Per-isolate cache of catalog rows by model ID; the catalog is public and shared. Concurrent
   // requests share one read, which has its own short deadline and ignores any one caller's signal,
   // so a person cancelling their request cannot poison the cache. Only a failed read is held back
@@ -126,12 +141,13 @@ export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, cat
     return { max_tokens: Math.min(MAX_OUTPUT_TOKENS, contextCap) };
   }
   return async function handle(request, env) {
+    if (env?.GATEWAY && typeof env.GATEWAY.fetch === 'function') binding = env.GATEWAY;
     const url = new URL(request.url);
     if (url.origin !== ORIGIN) return json({ error: { code: 'not_found', message: 'Not found.' } }, 404);
     const suppliedId = request.headers.get('x-cail-request-id');
     const requestId = UUID.test(suppliedId || '') ? suppliedId : crypto.randomUUID();
     try {
-      if (url.pathname === '/bibliography/health' && ['GET', 'HEAD'].includes(request.method)) return await readiness(env);
+      if (url.pathname === '/bibliography/health' && ['GET', 'HEAD'].includes(request.method)) return await readiness(env, client);
       // This Worker is binding-only. Doorway owns request-time Admission checks.
       // No public worker origin or application-credential fallback is exposed.
       const credential = await authenticate(request, env);
@@ -151,7 +167,7 @@ export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, cat
         if (typeof body?.title !== 'string' || body.title.length > 500 || typeof body?.author !== 'string' || body.author.length > 250) throw new AppError('invalid_request', 'Provide a title and author for library lookup.');
         const query = new URLSearchParams({ title: body.title, author: body.author, limit: '5' });
         if (Number.isInteger(body.year) && body.year > 0) query.set('first_publish_year', String(body.year));
-        const response = await fetchImpl(`https://openlibrary.org/search.json?${query}`, { redirect: 'manual', credentials: 'omit', signal, headers: { accept: 'application/json' } });
+        const response = await publicFetch(`https://openlibrary.org/search.json?${query}`, { redirect: 'manual', credentials: 'omit', signal, headers: { accept: 'application/json' } });
         if (!response.ok || response.status >= 300) { await response.body?.cancel(); throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
         let result;
         try { result = JSON.parse(await boundedText(response, 1024 * 1024)); } catch { throw new AppError('enrichment_unavailable', 'Library metadata was unavailable.', 502); }
@@ -204,7 +220,7 @@ export function createHandler({ fetchImpl = fetch, deadlineMs = DEADLINE_MS, cat
         const safe = candidate => candidate.protocol === 'https:' && !candidate.username && !candidate.password && !candidate.port && allowed.includes(candidate.hostname);
         for (let redirects = 0; redirects < 4; redirects++) {
           if (!safe(target)) throw new AppError('unsupported_source', 'This website is not enabled for import. Paste its bibliography or upload a file.');
-          const response = await fetchImpl(target, { redirect: 'manual', credentials: 'omit', signal, headers: { accept: 'text/html,text/plain' } });
+          const response = await publicFetch(target, { redirect: 'manual', credentials: 'omit', signal, headers: { accept: 'text/html,text/plain' } });
           if ([301, 302, 303, 307, 308].includes(response.status)) {
             const location = response.headers.get('location');
             await response.body?.cancel();
