@@ -5,6 +5,10 @@ import { parsingPrompt, ocrPrompt } from './prompts.js';
 const ORIGIN = 'https://tools.ailab.gc.cuny.edu';
 const AUDIENCE = 'cail:bibliography';
 const MAX_BODY = 8 * 1024 * 1024;
+// Reasoning models spend output tokens on thinking; Workers AI defaults are small enough to return
+// an empty reply with finish_reason "length". Parse and OCR calls ask for this much room.
+const MAX_OUTPUT_TOKENS = 16000;
+const CATALOG_CACHE_MS = 10 * 60 * 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 class AppError extends Error {
   constructor(code, message, status = 400) { super(message); Object.assign(this, { code, status }); }
@@ -67,6 +71,17 @@ async function authenticate(request, env) {
 
 export function createHandler({ fetchImpl = fetch } = {}) {
   const client = createCailClient({ app: 'bibliography', fetchImpl });
+  // Per-isolate cache of catalog capabilities by model ID; the catalog is public and shared.
+  let capabilityCache = { at: 0, models: new Map() };
+  async function modelCapabilities(model, signal) {
+    if (Date.now() - capabilityCache.at > CATALOG_CACHE_MS) {
+      try {
+        const catalog = await client.getCatalogSnapshot({ modality: 'all', signal });
+        capabilityCache = { at: Date.now(), models: new Map(catalog.data.map(row => [row.id, row.capabilities])) };
+      } catch { capabilityCache = { at: Date.now() - CATALOG_CACHE_MS + 30000, models: new Map() }; /* Unknown capabilities fall back to requesting the output room; retry discovery in 30s. */ }
+    }
+    return capabilityCache.models.get(model);
+  }
   return async function handle(request, env) {
     const url = new URL(request.url);
     if (url.origin !== ORIGIN) return json({ error: { code: 'not_found', message: 'Not found.' } }, 404);
@@ -122,12 +137,15 @@ export function createHandler({ fetchImpl = fetch } = {}) {
           if (typeof body.image !== 'string' || !/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(body.image)) throw new AppError('invalid_image', 'Provide one PDF page image.');
           payload = { model, temperature: 0, messages: [{ role: 'user', content: [{ type: 'text', text: ocrPrompt }, { type: 'image_url', image_url: { url: body.image } }] }] };
         }
+        const capabilities = await modelCapabilities(model, signal);
+        if (!capabilities || capabilities.includes('reasoning')) payload.max_tokens = MAX_OUTPUT_TOKENS;
         const correlation = { request_id: requestId, trace_id: crypto.randomUUID().replaceAll('-', ''), span_id: crypto.randomUUID().replaceAll('-', '').slice(0, 16), trace_flags: 0 };
         const response = await client.chatCompletions(payload, credential, { signal, correlation });
         let data;
         try { data = JSON.parse(await boundedText(response)); } catch (error) { if (error instanceof AppError) throw error; throw new AppError('invalid_model_response', 'The model returned an unreadable response.', 502); }
         const content = data.choices?.[0]?.message?.content;
-        if (typeof content !== 'string' || !content.trim() || data.choices[0].finish_reason === 'length') throw new AppError('invalid_model_response', 'The model returned an empty or incomplete response. Try a smaller batch.', 502);
+        if (data.choices?.[0]?.finish_reason === 'length') throw new AppError('model_output_limit', 'The model ran out of room before it finished. Try fewer entries per request.', 502);
+        if (typeof content !== 'string' || !content.trim()) throw new AppError('invalid_model_response', 'The model returned an empty or incomplete response. Try a smaller batch.', 502);
         return json({ content, request_id: requestId });
       }
       if (path === '/api/source' && request.method === 'POST') {

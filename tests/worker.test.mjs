@@ -12,6 +12,8 @@ async function request(path, body, options = {}) {
   const headers = { 'x-cail-identity-jwt': app, 'x-cail-gateway-identity-jwt': gateway, origin: options.origin || 'https://tools.ailab.gc.cuny.edu', 'content-type': 'application/json', ...options.headers };
   return new Request(`https://tools.ailab.gc.cuny.edu/bibliography/api/${path}`, { method: body ? 'POST' : 'GET', headers, ...(body ? { body: JSON.stringify(body) } : {}) });
 }
+const catalogRow = (id, overrides = {}) => ({ id, object: 'model', recommended: false, tier: 'advanced', order: 10, status: 'active', modality: 'text', provider: 'workers-ai', upstream_model: id, pricing_known: 'catalog', streaming: true, sunset: null, capabilities: ['text-generation'], context_length: 8192, registry_url: null, ...overrides });
+const catalogOf = rows => Response.json({ object: 'list', data: rows.map(([id, capabilities]) => catalogRow(id, { capabilities })) });
 const batch = { model: 'gpt-oss-120b', entries: [{ id: 'entry-1', source: 'Smith. 2020. A book.' }] };
 test('invalid verifier configuration is 503; missing, wrong or mismatched identity is 401', async () => {
   const handle = createHandler({ fetchImpl: () => assert.fail('Must not contact Gateway') });
@@ -22,6 +24,7 @@ test('invalid verifier configuration is 503; missing, wrong or mismatched identi
 test('both parsing and OCR use the member Gateway leg and strip ambient credentials', async () => {
   const calls = [];
   const handle = createHandler({ fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === '/v1/catalog') return catalogOf([['gpt-oss-120b', ['text-generation', 'reasoning']], ['qwen3-vl-235b-a22b-instruct', ['text-generation', 'vision']]]);
     calls.push({ url: String(url), init });
     return Response.json({ choices: [{ message: { content: '{"items":[]}' } }] });
   } });
@@ -71,6 +74,7 @@ test('quota is the shared delayed estimate and never preflights inference', asyn
   const paths = [];
   const snapshot = quotaSnapshotBody();
   const handle = createHandler({ fetchImpl: async url => {
+    if (new URL(url).pathname === '/v1/catalog') return catalogOf([]);
     paths.push(new URL(url).pathname);
     return paths.at(-1) === '/v1/quota' ? Response.json(snapshot) : Response.json({ choices: [{ message: { content: '{}' } }] });
   } });
@@ -80,7 +84,7 @@ test('quota is the shared delayed estimate and never preflights inference', asyn
 });
 test('budget exhaustion is preserved and never retried', async () => {
   let calls = 0;
-  const handle = createHandler({ fetchImpl: async () => { calls++; return quotaExceededResponse(); } });
+  const handle = createHandler({ fetchImpl: async url => { if (new URL(url).pathname === '/v1/catalog') return catalogOf([]); calls++; return quotaExceededResponse(); } });
   const response = await handle(await request('parse', batch), env);
   assert.equal(response.status, 429);
   assert.equal(response.headers.get('x-should-retry'), 'false');
@@ -116,7 +120,6 @@ test('private readiness validates both verifier configurations and actual index 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: 'ready', version_id: 'tested-version', tag: 'tested-release' });
 });
-const catalogRow = (id, overrides = {}) => ({ id, object: 'model', recommended: false, tier: 'advanced', order: 10, status: 'active', modality: 'text', provider: 'workers-ai', upstream_model: id, pricing_known: 'catalog', streaming: true, sunset: null, capabilities: ['text-generation'], context_length: 8192, registry_url: null, ...overrides });
 test('catalog with a bedrock-runtime row is served (cail-client 6.3.0 parser)', async () => {
   const handle = createHandler({ fetchImpl: async () => Response.json({ object: 'list', data: [catalogRow('gpt-oss-120b'), catalogRow('claude-on-bedrock', { provider: 'bedrock-runtime' })] }) });
   const response = await handle(await request('catalog'), env);
@@ -168,4 +171,49 @@ test('retryable 503 forwards x-should-retry and Retry-After; quota exhaustion is
   assert.equal((await spent.json()).error.code, 'quota_exceeded');
   assert.equal(spent.headers.get('x-should-retry'), 'false');
   assert.equal(spent.headers.get('retry-after'), '3600');
+});
+const modelCall = async (rows, model, reply, path = 'parse') => {
+  const sent = [];
+  const handle = createHandler({ fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === '/v1/catalog') return catalogOf(rows);
+    sent.push(JSON.parse(init.body));
+    return Response.json(reply);
+  } });
+  const body = path === 'parse' ? { ...batch, model } : { model, image: 'data:image/png;base64,aGVsbG8=' };
+  const response = await handle(await request(path, body), env);
+  return { response, sent };
+};
+test('reasoning and unlisted models get 16000 output tokens on parse and OCR; plain models are left alone', async () => {
+  const ok = { choices: [{ message: { content: '{"items":[]}' }, finish_reason: 'stop' }] };
+  const rows = [['gpt-oss-120b', ['text-generation', 'reasoning']], ['gemma-4-26b-a4b-it', ['text-generation', 'vision']]];
+  assert.equal((await modelCall(rows, 'gpt-oss-120b', ok)).sent[0].max_tokens, 16000);
+  assert.equal((await modelCall(rows, 'qwen3-vl-235b-a22b-instruct', ok, 'ocr')).sent[0].max_tokens, 16000);
+  assert.equal((await modelCall(rows, 'gemma-4-26b-a4b-it', ok)).sent[0].max_tokens, undefined);
+});
+test('capabilities are cached per handler and a catalog outage still requests output room', async () => {
+  let catalogCalls = 0;
+  const handle = createHandler({ fetchImpl: async url => {
+    if (new URL(url).pathname === '/v1/catalog') { catalogCalls++; return new Response('down', { status: 503 }); }
+    return Response.json({ choices: [{ message: { content: '{}' } }] });
+  } });
+  for (let i = 0; i < 2; i++) assert.equal((await handle(await request('parse', batch), env)).status, 200);
+  assert.equal(catalogCalls, 1);
+  const cached = [];
+  const good = createHandler({ fetchImpl: async (url, init) => {
+    if (new URL(url).pathname === '/v1/catalog') { cached.push('catalog'); return catalogOf([['gpt-oss-120b', ['text-generation', 'reasoning']]]); }
+    return Response.json({ choices: [{ message: { content: '{}' } }] });
+  } });
+  await good(await request('parse', batch), env); await good(await request('parse', batch), env);
+  assert.equal(cached.length, 1);
+});
+test('an exhausted output budget is its own error, with and without content', async () => {
+  for (const content of ['', '{"items":[{"source_id":"entry-1"']) {
+    const { response } = await modelCall([], 'gpt-oss-120b', { choices: [{ message: { content }, finish_reason: 'length' }] });
+    assert.equal(response.status, 502);
+    const { error } = await response.json();
+    assert.equal(error.code, 'model_output_limit');
+    assert.match(error.message, /fewer entries/);
+  }
+  const { response } = await modelCall([], 'gpt-oss-120b', { choices: [{ message: { content: '' }, finish_reason: 'stop' }] });
+  assert.equal((await response.json()).error.code, 'invalid_model_response');
 });
