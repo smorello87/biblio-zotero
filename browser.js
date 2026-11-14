@@ -1,7 +1,7 @@
 import { splitEntries, expandRepeatedAuthors, reconcileItems, validateItem, toRIS, parseModelJSON, NAME_ROLES, DATE_FIELDS, lookupPlan, lookupQuery, applySuggestion, catalogLink } from './core.js';
 import { readFile, textFromHTML } from './readers.js';
-import { createApi } from './api.js';
-import { modelMenus, chooseModel } from './models.js';
+import { chooseModel } from './models.js';
+import { copy, modelMenus, createEditionApi, setup, refreshStatus } from './edition.js';
 
 const $ = id => document.getElementById(id);
 const state = { records: [], controller: null, busy: false, page: 0, model: '', enrich: false };
@@ -30,32 +30,9 @@ function busy(value) {
   state.busy = value;
   document.querySelectorAll('.settings-panel input,.settings-panel select,#pdf-options input,#pdf-options select,.source-choices input,#file-field,#example-btn,#review-btn').forEach(node => { node.disabled = value; });
 }
-const api = createApi({ location, base: apiBase, storage: globalThis.sessionStorage });
+const api = createEditionApi({ location, base: apiBase, storage: globalThis.sessionStorage });
 
-async function refreshQuota() {
-  $('refresh-quota').disabled = true;
-  try {
-    const session = await api('session');
-    if (!session.authenticated) throw new Error('Sign in with your CUNY account.');
-    $('session-status').textContent = 'Signed in with CUNY';
-    try {
-      const quota = await api('quota');
-      const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value / 1000000);
-      const number = text('p', `${money(quota.estimated_remaining)} remaining`, 'quota-number');
-      const meter = document.createElement('meter'); meter.min = 0; meter.max = 100; meter.value = quota.used_percent; meter.setAttribute('aria-label', `${quota.used_percent}% of shared quota used`);
-      const window = `${Math.round(quota.window_seconds / 86400)}-day ${quota.window_technique} reporting window`;
-      // Gateway calculated_at is an epoch-second timestamp, not a local decrement.
-      const at = new Date(quota.calculated_at * 1000).toLocaleString();
-      $('quota-content').replaceChildren(number, text('p', `${money(quota.estimated_used)} used of ${money(quota.limit)}`, 'help'), meter, text('p', `Estimated shared usage. ${window}. Calculated ${at}. Updates may be delayed.`, 'help'));
-    } catch (error) {
-      // Say which failure it was, so a broken Gateway path is reportable rather than a vague notice.
-      $('quota-content').replaceChildren(text('p', 'Usage estimate is temporarily unavailable. You can still try a conversion.', 'help'), ...(error.requestId ? [text('p', `${error.code ? `${error.code} · ` : ''}Support reference: ${error.requestId}`, 'help')] : []));
-    }
-  } catch (error) {
-    $('session-status').replaceChildren(error.signInUrl ? signInLink(error.signInUrl) : text('span', error.status === 401 ? 'Sign in with CUNY to convert' : 'CUNY connection unavailable'));
-    $('quota-content').replaceChildren(text('p', 'You can prepare and review your bibliography here. A connected CUNY session is required for AI conversion.', 'help'));
-  } finally { $('refresh-quota').disabled = false; }
-}
+const refreshQuota = () => refreshStatus(api, { $, text, signInLink });
 // Only a selection the person made survives a menu rebuild; the built-in first option does not, so the
 // catalog's default rule applies on first load.
 function fillSelect(select, models, extra = []) {
@@ -65,8 +42,9 @@ function fillSelect(select, models, extra = []) {
 }
 async function loadCatalog() {
   try {
-    const menus = modelMenus(await api('catalog'));
-    fillSelect($('model-select'), menus.parse, [['other', 'Other Gateway model ID']]);
+    // A failed listing still rebuilds the menus, from the edition's built-in models.
+    const menus = modelMenus(await api('catalog').catch(() => null));
+    fillSelect($('model-select'), menus.parse, [['other', copy.otherModel]]);
     fillSelect($('vision-model-select'), menus.vision);
     display('custom-model-input', $('model-select').value === 'other');
     $('gateway-models').replaceChildren(...menus.suggestions.map(model => { const option = document.createElement('option'); option.value = model.id; option.label = model.label; return option; }));
@@ -242,7 +220,8 @@ function download(content, filename, type) {
 }
 function fileName(extension) { return ($('output-filename').value.replace(/\.(json|ris|txt)$/i, '').replace(/[^\p{L}\p{N} _.-]/gu, '_').trim() || 'bibliography') + extension; }
 
-document.querySelectorAll('[name=input-source]').forEach(radio => radio.addEventListener('change', () => { for (const source of ['text', 'file', 'url']) display(`${source}-input`, source === radio.value); }));
+const sources = [...document.querySelectorAll('[name=input-source]')];
+sources.forEach(radio => radio.addEventListener('change', () => { for (const { value } of sources) display(`${value}-input`, value === radio.value); }));
 $('file-field').addEventListener('change', () => {
   const file = $('file-field').files[0];
   const isPdf = file?.name.toLowerCase().endsWith('.pdf');
@@ -251,7 +230,7 @@ $('file-field').addEventListener('change', () => {
   display('pdf-options', isPdf || isImage);
   display('page-range', isPdf);
   display('page-help', isPdf);
-  $('vision-help').textContent = isImage ? 'The image will be sent to the selected CAIL vision model. This uses your shared quota.' : 'OCR uses your shared CAIL quota. Leave it off for PDFs with selectable text.';
+  $('vision-help').textContent = isImage ? copy.visionImage : copy.visionPdf;
   $('use-vision-ocr').checked = isImage;
 });
 $('model-select').addEventListener('change', () => { $('model-select').dataset.chosen = 'true'; display('custom-model-input', $('model-select').value === 'other'); });
@@ -273,4 +252,5 @@ $('refresh-quota').addEventListener('click', refreshQuota);
 $('about-link').addEventListener('click', () => $('about-dialog').showModal());
 $('close-about').addEventListener('click', () => $('about-dialog').close());
 window.addEventListener('beforeunload', event => { if (state.busy || state.records.length) { event.preventDefault(); event.returnValue = ''; } });
+setup({ $, text, refresh: () => { void refreshQuota(); void loadCatalog(); } });
 void refreshQuota(); void loadCatalog();

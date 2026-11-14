@@ -10,6 +10,18 @@ It is a Cloudflare Worker (`server/worker.js`) with static assets. The Worker ha
 
 Files and results stay in your browser tab. Text sent for conversion, page images sent for OCR and optional catalog lookups leave the browser for processing. Review every record against its source before importing it.
 
+## Open edition
+
+An open edition runs anywhere as a static site, with no backend and no CUNY account. People choose an OpenAI-compatible endpoint (OpenRouter, OpenAI, Google Gemini, Groq, Mistral, Together AI, a local server such as Ollama or LM Studio, or any other URL) and bring their own key, which stays in their browser. Conversion, OCR and catalog lookups go from the browser straight to the endpoint and the catalogs. Website import is left out, because bibliography sites do not allow cross-origin requests. The CUNY AI Lab Gateway is not offered as an endpoint either, for the same reason: CUNY users have the edition above.
+
+It shares every page module with the CAIL edition. `edition.js` holds what differs (the API client, the account panel and a few strings); `scripts/build-open.mjs` bundles `open/edition.js` in its place, uses `open/index.html` and `open/styles.css` (styled after stefanomorello.com), and fails if any CAIL-only module reaches the bundle. The model menus come from each endpoint's live model list: every current-generation model in the DeepSeek, GPT OSS, Gemma and Qwen VL families (`FAMILIES` in `open/api.js`), so new releases appear without a code change. `open/api.js` keeps the same `api(path, body, signal)` contract as `api.js` and runs the shared prompts and `server/lookup.js` in the browser.
+
+```bash
+npm run build:open              # writes dist-open/; upload its contents to any static host
+```
+
+It is published at `https://stefanomorello.com/tools/biblio-zotero/`.
+
 ## Develop
 
 Requires Node.js 22.

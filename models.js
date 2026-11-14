@@ -19,26 +19,27 @@ export const FALLBACK_VISION = [
 export const MIN_CONTEXT_TOKENS = 32000;
 // Safety classifiers answer "safe"/"unsafe", not CSL-JSON, even when tagged text-generation.
 const CLASSIFIER = /guard|safeguard/i;
-const known = new Map(FALLBACK_PARSE.map(model => [model.id, model.label]));
 const offered = (row, wanted) => typeof row?.id === 'string' && row.recommended === true && (row.status === undefined || row.status === 'active')
   && Array.isArray(row.capabilities) && wanted.every(capability => row.capabilities.includes(capability))
   && Number.isInteger(row.context_length) && row.context_length >= MIN_CONTEXT_TOKENS
   && !CLASSIFIER.test(row.id) && !CLASSIFIER.test(typeof row.name === 'string' ? row.name : '');
-const rows = (catalog, wanted) => (Array.isArray(catalog?.data) ? catalog.data : [])
+const rows = (catalog, wanted, known) => (Array.isArray(catalog?.data) ? catalog.data : [])
   .filter(row => offered(row, wanted))
   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   .map(row => ({ id: row.id, label: known.get(row.id) || (typeof row.name === 'string' && row.name) || row.id }));
 
-// Falls back to the built-in IDs whenever the catalog is missing or has no matching rows.
-export function modelMenus(catalog) {
-  const parse = rows(catalog, ['text-generation']);
-  const vision = rows(catalog, ['text-generation', 'vision']);
+// Falls back to the built-in IDs whenever the catalog is missing or has no matching rows. The open
+// edition passes its own OpenRouter fallbacks; labels for known IDs come from those lists.
+export function modelMenus(catalog, { fallbackParse = FALLBACK_PARSE, fallbackVision = FALLBACK_VISION } = {}) {
+  const known = new Map([...fallbackParse, ...fallbackVision].map(model => [model.id, model.label]));
+  const parse = rows(catalog, ['text-generation'], known);
+  const vision = rows(catalog, ['text-generation', 'vision'], known);
   // Suggestions for the free-text field: every text-generation row, whatever its tier.
   const suggestions = (Array.isArray(catalog?.data) ? catalog.data : [])
     .filter(row => typeof row?.id === 'string' && Array.isArray(row.capabilities) && row.capabilities.includes('text-generation'))
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map(row => ({ id: row.id, label: (typeof row.name === 'string' && row.name) || row.id }));
-  return { parse: parse.length ? parse : FALLBACK_PARSE, vision: vision.length ? vision : FALLBACK_VISION, suggestions };
+  return { parse: parse.length ? parse : fallbackParse, vision: vision.length ? vision : fallbackVision, suggestions };
 }
 
 // Default rule (owner, 2026-11-10): the offered model with the lowest catalog order, i.e. the first
